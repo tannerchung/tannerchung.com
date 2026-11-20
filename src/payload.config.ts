@@ -17,13 +17,21 @@ const dirname = path.dirname(filename)
 
 dotenv.config({ path: [path.resolve(dirname, '../.env.local'), path.resolve(dirname, '../.env')] })
 
-function normalizeDatabaseUri(rawUri?: string): string | undefined {
+function resolveDatabaseUri(): string | undefined {
+  const isMigrateCli = process.argv.some((arg) => arg.includes('migrate'))
+  const rawUri =
+    process.env.DATABASE_URI ||
+    (isMigrateCli ? process.env.POSTGRES_URL_NON_POOLING : undefined) ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_URL_NON_POOLING
   if (!rawUri) return rawUri
   try {
     const parsed = new URL(rawUri)
-    const isMigrateCli = process.argv.some((arg) => arg.includes('migrate'))
     if (parsed.hostname.endsWith('.pooler.supabase.com') && parsed.port === '5432' && !isMigrateCli) {
       parsed.port = '6543'
+    }
+    if (parsed.hostname.endsWith('.pooler.supabase.com') && parsed.port === '6543' && isMigrateCli) {
+      parsed.port = '5432'
     }
     if (
       parsed.hostname.endsWith('.supabase.com') &&
@@ -93,7 +101,7 @@ export default buildConfig({
     schemaName: 'payload',
     push: false,
     pool: {
-      connectionString: normalizeDatabaseUri(process.env.DATABASE_URI),
+      connectionString: resolveDatabaseUri(),
       max: process.env.VERCEL ? 2 : 5,
       idleTimeoutMillis: 10000,
     },
