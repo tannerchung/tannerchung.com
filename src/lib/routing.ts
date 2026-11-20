@@ -5,11 +5,22 @@ export function resolveHostRewrite(host: string, pathname: string): string | nul
       pathname.startsWith('/trade') ||
       pathname.startsWith('/admin') ||
       pathname.startsWith('/api') ||
-      pathname.startsWith('/_next')
+      pathname.startsWith('/_next') ||
+      pathname.startsWith('/.well-known')
     ) {
       return null
     }
     return pathname === '/' ? '/trade' : `/trade${pathname}`
   }
   return null
+}
+
+export function resolveTradeLoginRedirect(
+  host: string,
+  pathname: string,
+  search = '',
+): string {
+  const rewritten = resolveHostRewrite(host, pathname)
+  const targetPath = rewritten ?? (pathname === '/' ? '/trade' : pathname)
+  return `${targetPath}${search}`
 }
