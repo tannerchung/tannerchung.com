@@ -11,6 +11,7 @@ import sharp from 'sharp'
 import { Users } from '@/collections/Users'
 import { Media } from '@/collections/Media'
 import { Projects, Posts, Experiments, TradeNotes } from '@/collections/Content'
+import { TradeSheets } from '@/collections/TradeSheets'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -106,7 +107,7 @@ export default buildConfig({
       idleTimeoutMillis: 10000,
     },
   }),
-  collections: [Users, Media, Projects, Posts, Experiments, TradeNotes],
+  collections: [Users, Media, Projects, Posts, Experiments, TradeNotes, TradeSheets],
   plugins,
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),

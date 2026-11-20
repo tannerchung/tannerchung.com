@@ -73,6 +73,7 @@ export interface Config {
     posts: Post;
     experiments: Experiment;
     'trade-notes': TradeNote;
+    'trade-sheets': TradeSheet;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -86,6 +87,7 @@ export interface Config {
     posts: PostsSelect<false> | PostsSelect<true>;
     experiments: ExperimentsSelect<false> | ExperimentsSelect<true>;
     'trade-notes': TradeNotesSelect<false> | TradeNotesSelect<true>;
+    'trade-sheets': TradeSheetsSelect<false> | TradeSheetsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -341,6 +343,56 @@ export interface TradeNote {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "trade-sheets".
+ */
+export interface TradeSheet {
+  id: string;
+  sheetDate: string;
+  title: string;
+  subtitle?: string | null;
+  alertBanner?: string | null;
+  kpisJson?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  strategyJson?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  ticketsJson?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  checkedRowIds?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  quotesRefreshedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -386,6 +438,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'trade-notes';
         value: string | TradeNote;
+      } | null)
+    | ({
+        relationTo: 'trade-sheets';
+        value: string | TradeSheet;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -572,6 +628,23 @@ export interface TradeNotesSelect<T extends boolean = true> {
   thesis?: T;
   metricsJson?: T;
   sheetUrl?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "trade-sheets_select".
+ */
+export interface TradeSheetsSelect<T extends boolean = true> {
+  sheetDate?: T;
+  title?: T;
+  subtitle?: T;
+  alertBanner?: T;
+  kpisJson?: T;
+  strategyJson?: T;
+  ticketsJson?: T;
+  checkedRowIds?: T;
+  quotesRefreshedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

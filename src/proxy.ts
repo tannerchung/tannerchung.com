@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { resolveHostRewrite } from '@/lib/routing'
+import { resolveHostRewrite, resolveTradeLoginRedirect } from '@/lib/routing'
 import { checkRateLimit } from '@/lib/security/rate-limit'
 
 export function proxy(req: NextRequest) {
-  const { pathname } = req.nextUrl
+  const { pathname, search } = req.nextUrl
   const host = req.headers.get('host') ?? ''
 
   if (pathname === '/api/users/login' && req.method === 'POST') {
@@ -13,11 +13,17 @@ export function proxy(req: NextRequest) {
     }
   }
 
-  if (pathname.startsWith('/trade') || host.startsWith('trade.')) {
+  const isPublicSystemPath =
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/.well-known')
+
+  if ((pathname.startsWith('/trade') || host.startsWith('trade.')) && !isPublicSystemPath) {
     const hasSessionCookie = Boolean(req.cookies.get('payload-token')?.value)
-    if (!hasSessionCookie && !pathname.startsWith('/admin') && !pathname.startsWith('/api')) {
+    if (!hasSessionCookie) {
       const loginUrl = new URL('/admin/login', req.url)
-      loginUrl.searchParams.set('redirect', pathname)
+      loginUrl.searchParams.set('redirect', resolveTradeLoginRedirect(host, pathname, search))
       return NextResponse.redirect(loginUrl)
     }
   }
