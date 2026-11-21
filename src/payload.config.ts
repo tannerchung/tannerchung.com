@@ -6,12 +6,15 @@ import { postgresAdapter } from '@payloadcms/db-postgres'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { s3Storage } from '@payloadcms/storage-s3'
 import { seoPlugin } from '@payloadcms/plugin-seo'
+import { mcpPlugin } from '@payloadcms/plugin-mcp'
 import sharp from 'sharp'
 
 import { Users } from '@/collections/Users'
 import { Media } from '@/collections/Media'
 import { Projects, Posts, Experiments, TradeNotes } from '@/collections/Content'
 import { TradeSheets } from '@/collections/TradeSheets'
+import { SiteSettings } from '@/globals/SiteSettings'
+import { TradeDeskSettings } from '@/globals/TradeDeskSettings'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -55,6 +58,19 @@ const plugins: Plugin[] = [
   seoPlugin({
     uploadsCollection: 'media',
     collections: ['projects', 'posts'],
+  }),
+  mcpPlugin({
+    collections: {
+      projects: { enabled: true },
+      posts: { enabled: true },
+      experiments: { enabled: true },
+      'trade-notes': { enabled: true },
+      'trade-sheets': { enabled: true },
+    },
+    globals: {
+      'site-settings': { enabled: true },
+      'trade-desk-settings': { enabled: true },
+    },
   }),
 ]
 
@@ -108,6 +124,7 @@ export default buildConfig({
     },
   }),
   collections: [Users, Media, Projects, Posts, Experiments, TradeNotes, TradeSheets],
+  globals: [SiteSettings, TradeDeskSettings],
   plugins,
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),

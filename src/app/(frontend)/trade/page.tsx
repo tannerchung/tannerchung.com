@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { TradeSheetView } from '@/components/TradeSheetView'
+import { TradeSheetView, type DeskSettingsSummary } from '@/components/TradeSheetView'
 import type {
   TradeSheetKpi,
   TradeSheetStrategy,
@@ -24,31 +24,50 @@ export default async function TradeDeskPage(props: {
   const searchParams = await props.searchParams
   const initialTab = searchParams?.tab === 'blotter' ? 'blotter' : 'strategy'
 
-  const sheetsRes = await payload.find({
-    collection: 'trade-sheets',
-    user,
-    overrideAccess: false,
-    sort: '-sheetDate',
-    limit: 30,
-  })
-
-  const notesRes = await payload.find({
-    collection: 'trade-notes',
-    user,
-    overrideAccess: false,
-    sort: '-updatedAt',
-    limit: 20,
-  })
+  const [sheetsRes, notesRes, deskGlobal] = await Promise.all([
+    payload.find({
+      collection: 'trade-sheets',
+      user,
+      overrideAccess: false,
+      sort: '-sheetDate',
+      limit: 30,
+    }),
+    payload.find({
+      collection: 'trade-notes',
+      user,
+      overrideAccess: false,
+      sort: '-updatedAt',
+      limit: 20,
+    }),
+    payload
+      .findGlobal({
+        slug: 'trade-desk-settings',
+        user,
+        overrideAccess: false,
+      })
+      .catch(() => null),
+  ])
 
   const latest = sheetsRes.docs[0]
   const availableDates = sheetsRes.docs
     .map((d) => d.sheetDate)
     .filter((d): d is string => typeof d === 'string')
 
+  const deskSettings: DeskSettingsSummary | undefined = deskGlobal
+    ? {
+        cashFloorTarget: deskGlobal.cashFloorTarget,
+        maxOptionSpreadPct: deskGlobal.maxOptionSpreadPct,
+        taxShieldReadout: deskGlobal.taxShieldReadout,
+        washSaleBlackoutThrough: deskGlobal.washSaleBlackoutThrough,
+        washSaleTickers: deskGlobal.washSaleTickers,
+      }
+    : undefined
+
   return (
     <div className="space-y-12">
       {latest ? (
         <TradeSheetView
+          key={latest.sheetDate}
           sheetDate={latest.sheetDate}
           title={latest.title}
           subtitle={latest.subtitle}
@@ -75,39 +94,40 @@ export default async function TradeDeskPage(props: {
           initialQuotesRefreshedAt={latest.quotesRefreshedAt}
           availableDates={availableDates}
           initialTab={initialTab}
+          deskSettings={deskSettings}
         />
       ) : (
-        <div className="space-y-3 border-b border-[var(--border)] pb-6">
-          <p className="font-mono-code text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-            Private · Authenticated Wealth Desk
-          </p>
-          <h1 className="font-serif-display text-4xl">Daily Trade Desk</h1>
-          <p className="text-sm text-[var(--muted)]">
-            No daily trade sheets ingested yet. Run Stockbot&apos;s publisher to populate today&apos;s
+        <div className="lumen-card rounded-xl p-8 space-y-3">
+          <p className="lumen-eyebrow">01 · PRIVATE EXECUTION APPARATUS</p>
+          <h1 className="lumen-headline text-4xl">
+            daily desk ready to <em className="lumen-landmark">ingest</em>
+          </h1>
+          <p className="text-sm text-[var(--color-muted)] lowercase">
+            no daily trade sheets ingested yet. run stockbot&apos;s publisher to populate today&apos;s
             strategy and execution blotter.
           </p>
         </div>
       )}
 
       {notesRes.docs.length > 0 ? (
-        <section className="space-y-4 border-t border-[var(--border)] pt-8 lg:-mx-10 xl:-mx-16">
-          <h2 className="font-serif-display text-2xl">Research & Thesis Notes</h2>
+        <section className="space-y-4 border-t border-[var(--color-rule)] pt-8">
+          <p className="lumen-eyebrow">05 · STANDING RESEARCH MEMOS</p>
+          <h2 className="lumen-headline text-2xl sm:text-3xl">
+            conviction &amp; <em className="lumen-landmark">track</em> notes
+          </h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {notesRes.docs.map((note) => (
-              <article
-                key={note.id}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 space-y-2"
-              >
+              <article key={note.id} className="lumen-card rounded-xl p-5 space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="font-medium">{note.title}</h3>
+                  <h3 className="font-medium text-[var(--color-ink)]">{note.title}</h3>
                   {note.ticker ? (
-                    <span className="font-mono-code text-xs text-[var(--muted)]">
+                    <span className="font-mono-code text-xs text-[var(--color-accent)]">
                       {note.ticker}
                     </span>
                   ) : null}
                 </div>
                 {note.strategy ? (
-                  <p className="text-sm text-[var(--muted)]">{note.strategy}</p>
+                  <p className="text-sm text-[var(--color-muted)]">{note.strategy}</p>
                 ) : null}
               </article>
             ))}

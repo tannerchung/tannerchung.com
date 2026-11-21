@@ -1,0 +1,90 @@
+/* Reset-free Hallmark Lumen tokens — safe to import without Tailwind preflight side effects */
+
+:root,
+[data-theme="lumen"] {
+  /* Drop 01 · Night Foundry (Canonical Emission) */
+  --color-paper: oklch(13% 0.014 265);
+  --color-paper-2: oklch(16.8% 0.016 265);
+  --color-paper-3: oklch(20.5% 0.018 265);
+  --color-rule: oklch(25.5% 0.016 265);
+  --color-rule-2: oklch(33% 0.018 265);
+  --color-ink: oklch(95.5% 0.006 262);
+  --color-ink-2: oklch(84% 0.009 264);
+  --color-muted: oklch(67% 0.014 265);
+  --color-subtle: oklch(50% 0.014 265);
+
+  /* Molten Brass primary + Coral Chord verb-landmark */
+  --color-accent: oklch(76% 0.165 55);
+  --color-accent-ink: oklch(14% 0.02 55);
+  --color-accent-soft: oklch(76% 0.165 55 / 0.12);
+  --color-accent-2: oklch(68% 0.165 22);
+  --color-glow: oklch(80% 0.16 55 / 0.40);
+  --color-glow-2: oklch(76% 0.165 55 / 0.12);
+  --color-paper-emit: oklch(76% 0.165 55 / 0.045);
+  --color-card-emit: oklch(76% 0.165 55 / 0.04);
+  --color-card-emit-hover: oklch(76% 0.165 55 / 0.095);
+  --rule-blueprint: oklch(96% 0.006 262 / 0.042);
+
+  /* Semantic market signals (tinted toward anchor) */
+  --color-pos: oklch(75% 0.145 156);
+  --color-pos-soft: oklch(75% 0.145 156 / 0.13);
+  --color-pos-rule: oklch(75% 0.145 156 / 0.34);
+  --color-neg: oklch(70% 0.16 18);
+  --color-neg-soft: oklch(70% 0.16 18 / 0.14);
+  --color-neg-rule: oklch(70% 0.16 18 / 0.35);
+  --color-opt: oklch(74% 0.13 245);
+  --color-opt-soft: oklch(74% 0.13 245 / 0.14);
+  --color-opt-rule: oklch(74% 0.13 245 / 0.35);
+  --color-warn: oklch(80% 0.15 72);
+  --color-warn-soft: oklch(80% 0.15 72 / 0.11);
+  --color-warn-rule: oklch(80% 0.15 72 / 0.32);
+
+  --dur-pulse: 4s;
+  --ease-soft: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Legacy aliases so public routes inherit Lumen seamlessly */
+  --bg: var(--color-paper);
+  --surface: var(--color-paper-2);
+  --surface-2: var(--color-paper-3);
+  --border: var(--color-rule);
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --accent: var(--color-accent);
+}
+
+[data-theme="lumen"][data-drop="day"] {
+  /* Drop 02 · Day Foundry (Refraction) */
+  --color-paper: oklch(97% 0.008 265);
+  --color-paper-2: oklch(94.4% 0.010 265);
+  --color-paper-3: oklch(91.2% 0.013 265);
+  --color-rule: oklch(84% 0.014 265);
+  --color-rule-2: oklch(75% 0.018 265);
+  --color-ink: oklch(18% 0.016 265);
+  --color-ink-2: oklch(30% 0.016 265);
+  --color-muted: oklch(45% 0.016 265);
+  --color-subtle: oklch(58% 0.014 265);
+
+  --color-accent: oklch(46% 0.22 268);
+  --color-accent-ink: oklch(97% 0.008 265);
+  --color-accent-soft: oklch(46% 0.22 268 / 0.10);
+  --color-accent-2: oklch(56% 0.185 22);
+  --color-glow: oklch(58% 0.20 268 / 0.24);
+  --color-glow-2: oklch(58% 0.20 268 / 0.08);
+  --color-paper-emit: oklch(46% 0.22 268 / 0.035);
+  --color-card-emit: oklch(46% 0.22 268 / 0.025);
+  --color-card-emit-hover: oklch(46% 0.22 268 / 0.06);
+  --rule-blueprint: oklch(18% 0.016 265 / 0.055);
+
+  --color-pos: oklch(44% 0.145 156);
+  --color-pos-soft: oklch(44% 0.145 156 / 0.10);
+  --color-pos-rule: oklch(44% 0.145 156 / 0.28);
+  --color-neg: oklch(48% 0.17 18);
+  --color-neg-soft: oklch(48% 0.17 18 / 0.10);
+  --color-neg-rule: oklch(48% 0.17 18 / 0.28);
+  --color-opt: oklch(45% 0.16 248);
+  --color-opt-soft: oklch(45% 0.16 248 / 0.10);
+  --color-opt-rule: oklch(45% 0.16 248 / 0.28);
+  --color-warn: oklch(48% 0.14 68);
+  --color-warn-soft: oklch(75% 0.15 72 / 0.14);
+  --color-warn-rule: oklch(55% 0.14 68 / 0.30);
+}
