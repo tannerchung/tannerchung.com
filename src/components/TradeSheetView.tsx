@@ -8,6 +8,14 @@ import type {
   TradeTicketRow,
 } from '@/lib/trade-sheets'
 
+export interface DeskSettingsSummary {
+  cashFloorTarget?: string | null
+  maxOptionSpreadPct?: number | null
+  taxShieldReadout?: string | null
+  washSaleBlackoutThrough?: string | null
+  washSaleTickers?: string | null
+}
+
 export interface TradeSheetViewProps {
   sheetDate: string
   title: string
@@ -20,6 +28,57 @@ export interface TradeSheetViewProps {
   initialQuotesRefreshedAt?: string | null
   availableDates: string[]
   initialTab?: 'strategy' | 'blotter'
+  deskSettings?: DeskSettingsSummary
+}
+
+// Deterministic 64-bar procedural envelope (Signature Move #5: Meter Strip)
+const METER_ENVELOPE: number[] = Array.from({ length: 64 }, (_, i) => {
+  const x = (i / 63) * Math.PI * 2
+  const primary = Math.sin(x * 1.5 + 0.4) * 0.34 + 0.52
+  const harmonic = Math.cos(x * 4.2) * 0.16
+  const fine = ((i * 17) % 11) / 55
+  return Math.max(0.18, Math.min(0.98, Number((primary + harmonic + fine - 0.08).toFixed(2))))
+})
+
+const ACTION_VERBS = new Set([
+  'rotate',
+  'rotation',
+  'exit',
+  'harvest',
+  'deploy',
+  'redeploy',
+  'trim',
+  'compound',
+  'execute',
+  'execution',
+  'rebalance',
+  'write',
+  'capture',
+  'lock',
+  'build',
+  'shield',
+])
+
+function renderLowercaseLandmarkHeading(raw: string): React.ReactNode {
+  const cleaned = raw.trim().toLowerCase()
+  if (!cleaned) {
+    return (
+      <>
+        built to <em className="lumen-landmark">execute</em> with institutional discipline.
+      </>
+    )
+  }
+  const tokens = cleaned.split(/\s+/)
+  let verbIdx = tokens.findIndex((tok) => ACTION_VERBS.has(tok.replace(/[^a-z]/g, '')))
+  if (verbIdx === -1 && tokens.length > 1) {
+    verbIdx = 0
+  }
+  return tokens.map((tok, idx) => (
+    <React.Fragment key={idx}>
+      {idx > 0 ? ' ' : ''}
+      {idx === verbIdx ? <em className="lumen-landmark">{tok}</em> : tok}
+    </React.Fragment>
+  ))
 }
 
 export function TradeSheetView({
@@ -34,17 +93,18 @@ export function TradeSheetView({
   initialQuotesRefreshedAt,
   availableDates,
   initialTab = 'strategy',
+  deskSettings,
 }: TradeSheetViewProps) {
   const [activeTab, setActiveTab] = useState<'strategy' | 'blotter'>(initialTab)
   const [blotterFilter, setBlotterFilter] = useState<string>('ALL')
   const [tickets, setTickets] = useState<TradeTicketRow[]>(initialTickets)
   const [checkedSet, setCheckedSet] = useState<Set<string>>(() => new Set(initialCheckedIds))
-  const [copiedKey, setCopiedKey] = useState<string | null>(null)
-  const [refreshingQuotes, setRefreshingQuotes] = useState(false)
   const [quotesUpdatedAt, setQuotesUpdatedAt] = useState<string | null>(
     initialQuotesRefreshedAt ?? null,
   )
+  const [refreshingQuotes, setRefreshingQuotes] = useState(false)
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   const custodians = useMemo(() => {
     const seen = new Set<string>()
@@ -55,19 +115,30 @@ export function TradeSheetView({
   }, [tickets])
 
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
-      if (blotterFilter === 'ALL') return true
-      if (blotterFilter === 'WAVE1' || blotterFilter === 'WAVE2') return t.wave === blototterWave(blotterFilter)
-      return t.custodian === blotterFilter
-    })
+    if (blotterFilter === 'ALL') return tickets
+    if (blotterFilter === 'WAVE1' || blotterFilter === 'WAVE2') {
+      return tickets.filter((t) => t.wave === blotterFilter)
+    }
+    return tickets.filter((t) => t.custodian === blotterFilter)
   }, [tickets, blotterFilter])
 
-  function blototterWave(f: string) {
-    return f
-  }
+  const wave1Tickets = useMemo(() => tickets.filter((t) => t.wave === 'WAVE1'), [tickets])
+  const wave2Tickets = useMemo(() => tickets.filter((t) => t.wave === 'WAVE2'), [tickets])
+  const wave1Done = useMemo(
+    () => wave1Tickets.filter((t) => checkedSet.has(t.id)).length,
+    [wave1Tickets, checkedSet],
+  )
+  const wave2Done = useMemo(
+    () => wave2Tickets.filter((t) => checkedSet.has(t.id)).length,
+    [wave2Tickets, checkedSet],
+  )
 
-  const wave1Count = useMemo(() => tickets.filter((t) => t.wave === 'WAVE1').length, [tickets])
-  const wave2Count = useMemo(() => tickets.filter((t) => t.wave === 'WAVE2').length, [tickets])
+  const completionRatio = tickets.length > 0 ? checkedSet.size / tickets.length : 0
+  const activeMeterBars = Math.max(8, Math.round(completionRatio * 64))
+
+  // Signature Move #7: Always 3 cells in the monument stat row
+  const monumentStats = useMemo(() => kpis.slice(0, 3), [kpis])
+  const fourthKpi = kpis[3] || null
 
   async function persistChecks(nextIds: string[]) {
     try {
@@ -82,6 +153,8 @@ export function TradeSheetView({
         body: JSON.stringify({ checkedRowIds: nextIds }),
       })
       if (!res.ok) throw new Error('Sync failed')
+      setSyncStatus('Synced to Supabase')
+      setTimeout(() => setSyncStatus(null), 1800)
     } catch {
       setSyncStatus('Saved locally (offline)')
       setTimeout(() => setSyncStatus(null), 2500)
@@ -101,15 +174,19 @@ export function TradeSheetView({
     void persistChecks([])
   }
 
-  async function copyChip(rawVal: string, chipId: string) {
-    const clean = rawVal.replace(/^\$/, '').replace(/,/g, '').trim()
+  async function copyChip(rawVal: string, chipId: string, numericClean = true) {
+    const clean = numericClean
+      ? rawVal.replace(/^\$/, '').replace(/,/g, '').trim()
+      : rawVal.trim()
     if (!clean || clean.toLowerCase() === 'market') return
     try {
       await navigator.clipboard.writeText(clean)
       setCopiedKey(chipId)
-      setTimeout(() => setCopiedKey((prev) => (prev === chipId ? null : prev)), 1100)
+      setTimeout(() => {
+        setCopiedKey((curr) => (curr === chipId ? null : curr))
+      }, 1200)
     } catch {
-      // Ignore clipboard permission errors
+      // Ignore clipboard permission denial
     }
   }
 
@@ -117,9 +194,10 @@ export function TradeSheetView({
     setRefreshingQuotes(true)
     setSyncStatus(null)
     try {
-      const res = await fetch(`/api/trade-sheets/${encodeURIComponent(sheetDate)}/refresh-quotes`, {
-        method: 'POST',
-      })
+      const res = await fetch(
+        `/api/trade-sheets/${encodeURIComponent(sheetDate)}/refresh-quotes`,
+        { method: 'POST' },
+      )
       const data = (await res.json()) as {
         ok?: boolean
         refreshedCount?: number
@@ -129,7 +207,7 @@ export function TradeSheetView({
       if (res.ok && data.ok && Array.isArray(data.ticketsJson)) {
         setTickets(data.ticketsJson)
         if (data.quotesRefreshedAt) setQuotesUpdatedAt(data.quotesRefreshedAt)
-        setSyncStatus(`Refreshed ${data.refreshedCount ?? 0} live tickers`)
+        setSyncStatus(`Anchored ${data.refreshedCount ?? 0} live tickers`)
         setTimeout(() => setSyncStatus(null), 3500)
       } else {
         setSyncStatus('Quote refresh unavailable right now')
@@ -145,21 +223,36 @@ export function TradeSheetView({
     const up = action.toUpperCase()
     if (up === 'SELL') {
       return (
-        <span className="inline-block rounded px-2 py-0.5 font-mono-code text-[11px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+        <span className="inline-flex items-center rounded px-2 py-0.5 font-mono-code text-[10.5px] font-medium uppercase tracking-wider bg-[var(--color-neg-soft)] text-[var(--color-neg)] border border-[var(--color-neg-rule)]">
           SELL
         </span>
       )
     }
     if (up === 'BUY') {
       return (
-        <span className="inline-block rounded px-2 py-0.5 font-mono-code text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+        <span className="inline-flex items-center rounded px-2 py-0.5 font-mono-code text-[10.5px] font-medium uppercase tracking-wider bg-[var(--color-pos-soft)] text-[var(--color-pos)] border border-[var(--color-pos-rule)]">
           BUY
         </span>
       )
     }
     return (
-      <span className="inline-block rounded px-2 py-0.5 font-mono-code text-[11px] font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30">
+      <span className="inline-flex items-center rounded px-2 py-0.5 font-mono-code text-[10.5px] font-medium uppercase tracking-wider bg-[var(--color-opt-soft)] text-[var(--color-opt)] border border-[var(--color-opt-rule)]">
         {up}
+      </span>
+    )
+  }
+
+  function renderWaveBadge(wave: string) {
+    const isW1 = wave.toUpperCase() === 'WAVE1'
+    return (
+      <span
+        className={`inline-flex items-center rounded px-2 py-0.5 font-mono-code text-[10px] uppercase tracking-[0.08em] border ${
+          isW1
+            ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)] font-semibold'
+            : 'border-[var(--color-rule-2)] bg-[var(--color-paper-3)] text-[var(--color-muted)]'
+        }`}
+      >
+        {isW1 ? 'W1' : 'W2'}
       </span>
     )
   }
@@ -179,145 +272,312 @@ export function TradeSheetView({
     }
   }, [quotesUpdatedAt])
 
+  const maxSpread = deskSettings?.maxOptionSpreadPct ?? 8
+
   return (
-    <div className="space-y-7 lg:-mx-10 xl:-mx-16">
-      {/* Header + Archive Date Switcher */}
-      <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-6 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="font-mono-code text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Private · Authenticated Wealth Desk
-            </span>
-            {formattedQuoteTime ? (
-              <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 font-mono-code text-[11px] text-emerald-300/90">
-                Quotes anchored: {formattedQuoteTime}
-              </span>
+    <div className="space-y-7">
+      {/* MASTHEAD + SIGNATURE MOVE #1 (FILAMENT CHAMBER APPARATUS) + MOVE #4 (BLUEPRINT GRID) */}
+      <section className="lumen-blueprint rounded-xl border border-[var(--color-rule)] overflow-hidden">
+        <div className="p-6 sm:p-8 lg:p-10 grid grid-cols-1 lg:grid-cols-[1.45fr_0.85fr] gap-8 items-center">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="lumen-eyebrow">01 · PRIVATE EXECUTION APPARATUS</p>
+              {formattedQuoteTime ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-pos-rule)] bg-[var(--color-pos-soft)] px-2.5 py-0.5 font-mono-code text-[10.5px] uppercase tracking-[0.06em] text-[var(--color-pos)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-pos)]" />
+                  QUOTES ANCHORED · {formattedQuoteTime}
+                </span>
+              ) : null}
+            </div>
+
+            <h1 className="lumen-headline text-3xl sm:text-4xl lg:text-[2.75rem] text-[var(--color-ink)]">
+              {renderLowercaseLandmarkHeading(title)}
+            </h1>
+
+            {subtitle ? (
+              <p className="text-sm leading-relaxed text-[var(--color-muted)] max-w-2xl lowercase">
+                {subtitle}
+              </p>
+            ) : null}
+
+            {/* Archive Edition Switcher */}
+            {availableDates.length > 0 ? (
+              <div className="pt-1 flex flex-wrap items-center gap-2">
+                <span className="font-mono-code text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-subtle)] mr-1">
+                  EDITION
+                </span>
+                {availableDates.slice(0, 7).map((d) => {
+                  const active = d === sheetDate
+                  return (
+                    <Link
+                      key={d}
+                      href={`/trade/${d}`}
+                      className={`lumen-press inline-flex min-h-[34px] items-center rounded-md border px-2.5 py-1 font-mono-code text-xs tabular-nums ${
+                        active
+                          ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)] font-medium'
+                          : 'border-[var(--color-rule)] bg-[var(--color-paper-2)] text-[var(--color-muted)] hover:text-[var(--color-ink)] hover:border-[var(--color-rule-2)]'
+                      }`}
+                    >
+                      {d}
+                    </Link>
+                  )
+                })}
+              </div>
             ) : null}
           </div>
-          <h1 className="font-serif-display text-3xl sm:text-4xl text-[var(--ink)]">{title}</h1>
-          {subtitle ? <p className="text-sm text-[var(--muted)] max-w-3xl">{subtitle}</p> : null}
+
+          {/* Hand-Engineered Filament Chamber + Real Mono Leader-Line Callouts */}
+          <figure
+            aria-label="Execution chamber telemetry"
+            className="relative flex items-center justify-center py-3"
+          >
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 w-full max-w-md">
+              {/* Left Callouts */}
+              <div className="space-y-7 text-right">
+                <div className="relative pr-4">
+                  <span className="block font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
+                    WAVE 01
+                  </span>
+                  <span className="block font-mono-code text-xs uppercase tracking-[0.06em] text-[var(--color-ink-2)] tabular-nums">
+                    {wave1Done}/{wave1Tickets.length} LEGS
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="absolute right-0 top-1/2 w-3 h-px bg-[var(--color-rule-2)]"
+                  />
+                </div>
+                <div className="relative pr-4">
+                  <span className="block font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
+                    OPT GATE
+                  </span>
+                  <span className="block font-mono-code text-xs uppercase tracking-[0.06em] text-[var(--color-accent)] tabular-nums">
+                    &lt;={maxSpread.toFixed(1)}% SPR
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="absolute right-0 top-1/2 w-3 h-px bg-[var(--color-rule-2)]"
+                  />
+                </div>
+              </div>
+
+              {/* Cylindrical Filament Chamber */}
+              <div className="lumen-chamber w-[88px] h-[156px] shrink-0">
+                <span className="lumen-electrode" style={{ top: '22%' }} />
+                <span className="lumen-electrode" style={{ top: '42%' }} />
+                <span className="lumen-electrode" style={{ top: '62%' }} />
+                <span className="lumen-electrode" style={{ top: '82%' }} />
+                <span className="lumen-filament" />
+                <span className="absolute bottom-2.5 inset-x-0 text-center font-mono-code text-[9px] uppercase tracking-[0.14em] text-[var(--color-subtle)]">
+                  SG-01
+                </span>
+              </div>
+
+              {/* Right Callouts */}
+              <div className="space-y-7 text-left">
+                <div className="relative pl-4">
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1/2 w-3 h-px bg-[var(--color-rule-2)]"
+                  />
+                  <span className="block font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
+                    WAVE 02
+                  </span>
+                  <span className="block font-mono-code text-xs uppercase tracking-[0.06em] text-[var(--color-ink-2)] tabular-nums">
+                    {wave2Done}/{wave2Tickets.length} LEGS
+                  </span>
+                </div>
+                <div className="relative pl-4">
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1/2 w-3 h-px bg-[var(--color-rule-2)]"
+                  />
+                  <span className="block font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
+                    BLOTTER
+                  </span>
+                  <span className="block font-mono-code text-xs uppercase tracking-[0.06em] text-[var(--color-pos)] tabular-nums">
+                    {checkedSet.size}/{tickets.length} DONE
+                  </span>
+                </div>
+              </div>
+            </div>
+          </figure>
         </div>
 
-        {availableDates.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {availableDates.slice(0, 6).map((d) => {
-              const active = d === sheetDate
+        {/* SIGNATURE MOVE #5: PROCEDURAL SIGNAL METER STRIP */}
+        <aside
+          aria-label="Execution signal readout"
+          className="lumen-meter px-6 sm:px-8 py-3 grid grid-cols-1 sm:grid-cols-[auto_1fr_auto] items-center gap-4"
+        >
+          <p className="font-mono-code text-[10.5px] uppercase tracking-[0.12em] text-[var(--color-muted)] tabular-nums">
+            SHEET · {sheetDate} · {tickets.length} TICKETS
+          </p>
+          <div className="hidden sm:flex items-end gap-[2px] h-6" aria-hidden="true">
+            {METER_ENVELOPE.map((h, i) => {
+              const lit = i < activeMeterBars
               return (
-                <Link
-                  key={d}
-                  href={`/trade/${d}`}
-                  className={`rounded-md border px-2.5 py-1 font-mono-code text-xs transition-colors ${
-                    active
-                      ? 'border-[var(--ink)] bg-[var(--ink)] text-[var(--bg)] font-medium'
-                      : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--ink)]'
+                <span
+                  key={i}
+                  style={{
+                    height: `${Math.round(h * 100)}%`,
+                    opacity: lit ? 0.88 : 0.22,
+                  }}
+                  className={`flex-1 min-w-[1px] rounded-[0.5px] ${
+                    lit ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-muted)]'
                   }`}
-                >
-                  {d}
-                </Link>
+                />
               )
             })}
           </div>
-        ) : null}
-      </div>
+          <p className="font-mono-code text-[10.5px] uppercase tracking-[0.12em] text-[var(--color-pos)] tabular-nums">
+            {fourthKpi
+              ? `${fourthKpi.label} · ${fourthKpi.value}`
+              : 'GUARDRAILS · $95K FLOOR + 0 WASH SALES'}
+          </p>
+        </aside>
+      </section>
 
-      {/* Execution Guardrail Banner */}
-      {alertBanner ? (
-        <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-200/95">
-          <strong className="font-semibold text-amber-100">Execution Sequence & Guardrails: </strong>
-          {alertBanner}
-        </div>
-      ) : null}
-
-      {/* KPI Cards */}
-      {kpis.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {kpis.map((kpi, idx) => (
-            <div
-              key={`${kpi.label}-${idx}`}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-1"
-            >
-              <div className="font-mono-code text-[11px] uppercase tracking-wider text-[var(--muted)]">
-                {kpi.label}
+      {/* SIGNATURE MOVE #7: THREE-STAT MONUMENT ROW (INSTRUMENT SERIF + TABULAR-NUMS) */}
+      {monumentStats.length > 0 ? (
+        <section
+          aria-label="Session key figures"
+          className={`lumen-card rounded-xl grid grid-cols-1 divide-y md:divide-y-0 md:divide-x divide-[var(--color-rule)] ${
+            monumentStats.length === 3
+              ? 'md:grid-cols-3'
+              : monumentStats.length === 2
+                ? 'md:grid-cols-2'
+                : 'md:grid-cols-1'
+          }`}
+        >
+          {monumentStats.map((kpi, idx) => (
+            <div key={`${kpi.label}-${idx}`} className="p-6 sm:px-7 space-y-2">
+              <div className="font-mono-code text-[11px] uppercase tracking-[0.11em] text-[var(--color-muted)]">
+                0{idx + 1} · {kpi.label}
               </div>
-              <div className="font-mono-code text-xl font-semibold text-[var(--ink)]">
+              <div className="lumen-stat-num text-3xl sm:text-4xl text-[var(--color-ink)]">
                 {kpi.value}
               </div>
-              {kpi.sub ? <div className="text-xs text-[var(--muted)]">{kpi.sub}</div> : null}
+              {kpi.sub ? (
+                <div className="text-xs text-[var(--color-muted)] lowercase">{kpi.sub}</div>
+              ) : null}
             </div>
           ))}
+        </section>
+      ) : null}
+
+      {/* EXECUTION SEQUENCE & STANDING GUARDRAILS BANNER */}
+      {alertBanner || deskSettings?.washSaleTickers ? (
+        <div className="rounded-xl border border-[var(--color-warn-rule)] bg-[var(--color-warn-soft)] px-5 py-4 space-y-2">
+          {alertBanner ? (
+            <p className="text-xs sm:text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+              <span className="font-mono-code text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-warn)] font-semibold mr-2">
+                SEQUENCE &amp; GUARDRAILS //
+              </span>
+              {alertBanner}
+            </p>
+          ) : null}
+          {deskSettings?.washSaleTickers ? (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 pt-1 border-t border-[var(--color-warn-rule)] font-mono-code text-[10.5px] uppercase tracking-[0.07em] text-[var(--color-muted)]">
+              {deskSettings.cashFloorTarget ? (
+                <span>FLOOR: {deskSettings.cashFloorTarget}</span>
+              ) : null}
+              <span>
+                TLH BLACKOUT THRU {deskSettings.washSaleBlackoutThrough || '2026-12-10'}:{' '}
+                <strong className="text-[var(--color-ink-2)] font-medium">
+                  {deskSettings.washSaleTickers}
+                </strong>
+              </span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {/* Primary 2-Tab Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
-        <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
+      {/* PRIMARY 2-TAB SWITCHER + QUOTE ANCHOR ACTION (44px touch targets) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-rule)] pb-4">
+        <div
+          role="tablist"
+          aria-label="Trade sheet views"
+          className="inline-flex flex-wrap gap-1.5 rounded-lg border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-1"
+        >
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'strategy'}
             onClick={() => setActiveTab('strategy')}
-            className={`rounded-md px-4 py-2 text-xs sm:text-sm font-medium transition-colors ${
+            className={`lumen-press min-h-[42px] rounded-md px-4 py-2 text-xs sm:text-sm lowercase cursor-pointer ${
               activeTab === 'strategy'
-                ? 'bg-[var(--ink)] text-[var(--bg)]'
-                : 'text-[var(--muted)] hover:text-[var(--ink)]'
+                ? 'bg-[var(--color-accent)] text-[var(--color-accent-ink)] font-semibold'
+                : 'text-[var(--color-muted)] hover:text-[var(--color-ink)]'
             }`}
           >
-            1. Strategy, Facts & Expected Result
+            01 · strategy, facts &amp; expected result
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'blotter'}
             onClick={() => setActiveTab('blotter')}
-            className={`rounded-md px-4 py-2 text-xs sm:text-sm font-medium transition-colors ${
+            className={`lumen-press min-h-[42px] rounded-md px-4 py-2 text-xs sm:text-sm lowercase tabular-nums cursor-pointer ${
               activeTab === 'blotter'
-                ? 'bg-[var(--ink)] text-[var(--bg)]'
-                : 'text-[var(--muted)] hover:text-[var(--ink)]'
+                ? 'bg-[var(--color-accent)] text-[var(--color-accent-ink)] font-semibold'
+                : 'text-[var(--color-muted)] hover:text-[var(--color-ink)]'
             }`}
           >
-            2. Full Execution Blotter ({checkedSet.size}/{tickets.length})
+            02 · full execution blotter ({checkedSet.size}/{tickets.length})
           </button>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-3">
           {syncStatus ? (
-            <span className="font-mono-code text-xs text-emerald-300">{syncStatus}</span>
+            <span className="font-mono-code text-[11px] uppercase tracking-[0.06em] text-[var(--color-pos)]">
+              {syncStatus}
+            </span>
           ) : null}
           <button
             type="button"
             onClick={() => void handleRefreshQuotes()}
             disabled={refreshingQuotes}
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono-code text-xs text-[var(--ink)] hover:border-[var(--muted)] disabled:opacity-50 transition-colors"
+            className="lumen-press min-h-[42px] rounded-lg border border-[var(--color-rule-2)] bg-[var(--color-paper-2)] px-4 py-2 font-mono-code text-[11px] uppercase tracking-[0.08em] text-[var(--color-ink)] hover:border-[var(--color-accent)] disabled:opacity-50 cursor-pointer"
           >
-            {refreshingQuotes ? 'Refreshing Yahoo Quotes...' : '↻ Refresh Live Quotes'}
+            {refreshingQuotes ? 'ANCHORING QUOTES...' : '↻ REFRESH LIVE QUOTES'}
           </button>
         </div>
       </div>
 
-      {/* TAB 1: STRATEGY, FACTS & EXPECTED RESULT */}
+      {/* =====================================================================
+          TAB 1: STRATEGY, EMPIRICAL FACTS & EXPECTED RESULT
+         ===================================================================== */}
       {activeTab === 'strategy' ? (
         <div className="space-y-6">
           {/* Strategy Narrative */}
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
-            <div className="space-y-1">
-              <p className="font-mono-code text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                Part I · Today&apos;s Game Plan
-              </p>
-              <h2 className="font-serif-display text-2xl text-[var(--ink)]">
-                {strategy.headline || 'Capital Rotation & Disciplined Yield Plan'}
+          <section className="lumen-card rounded-xl p-6 sm:p-8 space-y-5">
+            <div className="space-y-2">
+              <p className="lumen-eyebrow">02 · TODAY&apos;S GAME PLAN</p>
+              <h2 className="lumen-headline text-2xl sm:text-3xl text-[var(--color-ink)]">
+                {renderLowercaseLandmarkHeading(
+                  strategy.headline || 'capital rotation & disciplined yield plan',
+                )}
               </h2>
             </div>
 
             {strategy.summaryBullets.length > 0 ? (
-              <ul className="space-y-2.5 text-sm leading-relaxed text-[var(--ink)]/90 list-disc pl-5">
+              <ul className="space-y-3 text-sm leading-relaxed text-[var(--color-ink-2)]">
                 {strategy.summaryBullets.map((b, i) => (
-                  <li key={i}>{b}</li>
+                  <li key={i} className="flex gap-3">
+                    <span className="font-mono-code text-xs text-[var(--color-accent)] pt-0.5 select-none">
+                      0{i + 1}
+                    </span>
+                    <span>{b}</span>
+                  </li>
                 ))}
               </ul>
             ) : null}
 
             {strategy.holdOffNotes && strategy.holdOffNotes.length > 0 ? (
-              <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--bg)] p-4 space-y-2">
-                <div className="font-mono-code text-xs uppercase tracking-wider text-amber-300">
-                  Intentional Stand-Asides & Active Blackouts
+              <div className="mt-4 rounded-lg border border-[var(--color-rule-2)] bg-[var(--color-paper)] p-5 space-y-2.5">
+                <div className="font-mono-code text-[11px] uppercase tracking-[0.11em] text-[var(--color-warn)]">
+                  INTENTIONAL STAND-ASIDES &amp; ACTIVE BLACKOUTS
                 </div>
-                <ul className="space-y-1.5 text-xs leading-relaxed text-[var(--muted)] list-disc pl-4">
+                <ul className="space-y-2 text-xs sm:text-[13px] leading-relaxed text-[var(--color-muted)] list-disc pl-4">
                   {strategy.holdOffNotes.map((n, i) => (
                     <li key={i}>{n}</li>
                   ))}
@@ -328,34 +588,32 @@ export function TradeSheetView({
 
           {/* Empirical Facts Table */}
           {strategy.facts.length > 0 ? (
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-              <div className="border-b border-[var(--border)] px-6 py-4">
-                <p className="font-mono-code text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                  Part II · Empirical Evidence ([Measured])
-                </p>
-                <h2 className="font-serif-display text-2xl text-[var(--ink)]">
-                  The Facts Driving Today&apos;s Trades
+            <section className="lumen-card rounded-xl overflow-hidden">
+              <div className="border-b border-[var(--color-rule)] px-6 sm:px-8 py-5 space-y-1.5">
+                <p className="lumen-eyebrow">03 · EMPIRICAL EVIDENCE ([MEASURED])</p>
+                <h2 className="lumen-headline text-2xl sm:text-3xl text-[var(--color-ink)]">
+                  the facts that <em className="lumen-landmark">justify</em> today&apos;s trades
                 </h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="border-b border-[var(--border)] bg-[var(--bg)] font-mono-code text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                  <thead className="border-b border-[var(--color-rule)] bg-[var(--color-paper)] font-mono-code text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-muted)]">
                     <tr>
-                      <th className="px-6 py-3">Pillar</th>
-                      <th className="px-6 py-3">Measured Signal</th>
-                      <th className="px-6 py-3">Why We Act</th>
+                      <th className="px-6 sm:px-8 py-3.5">PILLAR</th>
+                      <th className="px-6 py-3.5">MEASURED SIGNAL</th>
+                      <th className="px-6 sm:px-8 py-3.5">WHY WE ACT</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[var(--border)]">
+                  <tbody className="divide-y divide-[var(--color-rule)]">
                     {strategy.facts.map((f, i) => (
-                      <tr key={i} className="hover:bg-white/[0.02]">
-                        <td className="px-6 py-3.5 font-mono-code text-xs text-[var(--ink)] whitespace-nowrap">
+                      <tr key={i} className="hover:bg-[var(--color-paper-3)]/45 transition-colors">
+                        <td className="px-6 sm:px-8 py-4 font-mono-code text-xs uppercase tracking-[0.06em] text-[var(--color-ink)] whitespace-nowrap">
                           {f.pillar}
                         </td>
-                        <td className="px-6 py-3.5 font-mono-code text-xs text-emerald-300 whitespace-nowrap">
+                        <td className="px-6 py-4 font-mono-code text-xs text-[var(--color-accent)] tabular-nums whitespace-nowrap">
                           {f.metric}
                         </td>
-                        <td className="px-6 py-3.5 text-xs leading-relaxed text-[var(--muted)]">
+                        <td className="px-6 sm:px-8 py-4 text-xs sm:text-[13px] leading-relaxed text-[var(--color-muted)]">
                           {f.detail}
                         </td>
                       </tr>
@@ -368,38 +626,38 @@ export function TradeSheetView({
 
           {/* Expected Result Table */}
           {strategy.expectedResults.length > 0 ? (
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-              <div className="border-b border-[var(--border)] px-6 py-4">
-                <p className="font-mono-code text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                  Part III · Portfolio Transformation
-                </p>
-                <h2 className="font-serif-display text-2xl text-[var(--ink)]">
-                  Expected Result (Before → After)
+            <section className="lumen-card rounded-xl overflow-hidden">
+              <div className="border-b border-[var(--color-rule)] px-6 sm:px-8 py-5 space-y-1.5">
+                <p className="lumen-eyebrow">04 · PORTFOLIO TRANSFORMATION</p>
+                <h2 className="lumen-headline text-2xl sm:text-3xl text-[var(--color-ink)]">
+                  expected state once orders <em className="lumen-landmark">settle</em>
                 </h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="border-b border-[var(--border)] bg-[var(--bg)] font-mono-code text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                  <thead className="border-b border-[var(--color-rule)] bg-[var(--color-paper)] font-mono-code text-[10.5px] uppercase tracking-[0.1em] text-[var(--color-muted)]">
                     <tr>
-                      <th className="px-6 py-3">Dimension</th>
-                      <th className="px-6 py-3">Before</th>
-                      <th className="px-6 py-3">After</th>
-                      <th className="px-6 py-3">Net Impact</th>
+                      <th className="px-6 sm:px-8 py-3.5">DIMENSION</th>
+                      <th className="px-6 py-3.5">BEFORE</th>
+                      <th className="px-6 py-3.5">AFTER</th>
+                      <th className="px-6 sm:px-8 py-3.5">NET IMPACT</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[var(--border)]">
+                  <tbody className="divide-y divide-[var(--color-rule)]">
                     {strategy.expectedResults.map((r, i) => (
-                      <tr key={i} className="hover:bg-white/[0.02]">
-                        <td className="px-6 py-3.5 font-medium text-xs text-[var(--ink)]">
+                      <tr key={i} className="hover:bg-[var(--color-paper-3)]/45 transition-colors">
+                        <td className="px-6 sm:px-8 py-4 font-medium text-xs sm:text-[13px] text-[var(--color-ink)]">
                           {r.metric}
                         </td>
-                        <td className="px-6 py-3.5 font-mono-code text-xs text-[var(--muted)]">
+                        <td className="px-6 py-4 font-mono-code text-xs text-[var(--color-muted)] tabular-nums">
                           {r.before}
                         </td>
-                        <td className="px-6 py-3.5 font-mono-code text-xs text-[var(--ink)]">
+                        <td className="px-6 py-4 font-mono-code text-xs text-[var(--color-ink)] tabular-nums">
                           {r.after}
                         </td>
-                        <td className="px-6 py-3.5 text-xs text-emerald-300">{r.impact}</td>
+                        <td className="px-6 sm:px-8 py-4 text-xs sm:text-[13px] text-[var(--color-pos)] tabular-nums">
+                          {r.impact}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -408,27 +666,78 @@ export function TradeSheetView({
             </section>
           ) : null}
 
-          <div className="flex justify-end pt-1">
+          <div className="flex justify-end pt-2">
             <button
               type="button"
               onClick={() => setActiveTab('blotter')}
-              className="rounded-lg bg-[var(--ink)] px-5 py-2.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 transition-opacity"
+              className="lumen-press min-h-[44px] rounded-lg bg-[var(--color-accent)] px-6 py-3 text-sm font-semibold lowercase text-[var(--color-accent-ink)] cursor-pointer"
             >
-              Open Full Execution Blotter ({tickets.length} Tickets) →
+              open full execution blotter ({tickets.length} legs) →
             </button>
           </div>
         </div>
       ) : (
-        /* TAB 2: FULL EXECUTION BLOTTER */
-        <div className="space-y-4">
-          {/* Blotter Filter Bar */}
+        /* =====================================================================
+           TAB 2: FULL INTERACTIVE EXECUTION BLOTTER
+           ===================================================================== */
+        <div className="space-y-5">
+          {/* Wave Progress Readout Strip */}
+          <div className="lumen-card rounded-xl p-4 sm:px-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between font-mono-code text-[11px] uppercase tracking-[0.08em]">
+                <span className="text-[var(--color-accent)]">
+                  WAVE 01 · SELLS &amp; OPTIONS (ENTER FIRST)
+                </span>
+                <span className="text-[var(--color-ink)] tabular-nums">
+                  {wave1Done} / {wave1Tickets.length}
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-[var(--color-paper)] overflow-hidden">
+                <div
+                  className="h-full bg-[var(--color-accent)] transition-all duration-200"
+                  style={{
+                    width: `${
+                      wave1Tickets.length > 0
+                        ? Math.round((wave1Done / wave1Tickets.length) * 100)
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between font-mono-code text-[11px] uppercase tracking-[0.08em]">
+                <span className="text-[var(--color-muted)]">
+                  WAVE 02 · COMPOUNDER BUYS (ENTER AFTER WAVE 01 FILLS)
+                </span>
+                <span className="text-[var(--color-ink)] tabular-nums">
+                  {wave2Done} / {wave2Tickets.length}
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-[var(--color-paper)] overflow-hidden">
+                <div
+                  className="h-full bg-[var(--color-pos)] transition-all duration-200"
+                  style={{
+                    width: `${
+                      wave2Tickets.length > 0
+                        ? Math.round((wave2Done / wave2Tickets.length) * 100)
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Filter & Reset Controls */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1.5">
               {[
-                { key: 'ALL', label: `All (${tickets.length})` },
-                { key: 'WAVE1', label: `1. Wave 1: Sells + Options (${wave1Count})` },
-                { key: 'WAVE2', label: `2. Wave 2: Post-Fill Buys (${wave2Count})` },
-                ...custodians.map((c) => ({ key: c, label: c })),
+                { key: 'ALL', label: `all (${tickets.length})` },
+                { key: 'WAVE1', label: `wave 01 (${wave1Tickets.length})` },
+                { key: 'WAVE2', label: `wave 02 (${wave2Tickets.length})` },
+                ...custodians.map((c) => ({ key: c, label: c.toLowerCase() })),
               ].map((tab) => {
                 const active = blotterFilter === tab.key
                 return (
@@ -436,10 +745,10 @@ export function TradeSheetView({
                     key={tab.key}
                     type="button"
                     onClick={() => setBlotterFilter(tab.key)}
-                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`lumen-press min-h-[38px] rounded-md border px-3.5 py-1.5 text-xs lowercase tabular-nums cursor-pointer ${
                       active
-                        ? 'border-[var(--ink)] bg-[var(--ink)] text-[var(--bg)]'
-                        : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--ink)]'
+                        ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)] font-semibold'
+                        : 'border-[var(--color-rule)] bg-[var(--color-paper-2)] text-[var(--color-muted)] hover:text-[var(--color-ink)] hover:border-[var(--color-rule-2)]'
                     }`}
                   >
                     {tab.label}
@@ -449,109 +758,126 @@ export function TradeSheetView({
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="font-mono-code text-xs text-[var(--muted)]">
-                {checkedSet.size} / {tickets.length} entered
+              <span className="font-mono-code text-xs uppercase tracking-[0.06em] text-[var(--color-muted)] tabular-nums">
+                {checkedSet.size} / {tickets.length} ENTERED
               </span>
               <button
                 type="button"
                 onClick={resetChecks}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 font-mono-code text-xs text-[var(--muted)] hover:text-[var(--ink)]"
+                className="lumen-press min-h-[36px] rounded-md border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-1.5 font-mono-code text-[11px] uppercase tracking-[0.08em] text-[var(--color-muted)] hover:text-[var(--color-ink)] cursor-pointer"
               >
-                Reset Checks
+                RESET CHECKS
               </button>
             </div>
           </div>
 
-          {/* Execution Table */}
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+          {/* Blotter Table */}
+          <div className="lumen-card rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-[var(--border)] bg-[var(--bg)] font-mono-code text-[11px] uppercase tracking-wider text-[var(--muted)]">
+              <table className="w-full text-left text-xs tabular-nums">
+                <thead className="border-b border-[var(--color-rule)] bg-[var(--color-paper)] font-mono-code text-[10.5px] uppercase tracking-[0.09em] text-[var(--color-muted)]">
                   <tr>
-                    <th className="w-10 px-3 py-3 text-center">Done</th>
-                    <th className="px-3 py-3">Account</th>
-                    <th className="px-3 py-3">Action</th>
-                    <th className="px-3 py-3">Symbol / Contract</th>
-                    <th className="px-3 py-3">Qty (Copy)</th>
-                    <th className="px-3 py-3">Limit (Copy)</th>
-                    <th className="px-3 py-3">Est. $</th>
-                    <th className="px-3 py-3">Live Spot & Execution Note</th>
+                    <th className="w-12 px-3 py-3.5 text-center">DONE</th>
+                    <th className="px-3 py-3.5">WAVE</th>
+                    <th className="px-3 py-3.5">ACCOUNT</th>
+                    <th className="px-3 py-3.5">ACTION</th>
+                    <th className="px-3 py-3.5">SYMBOL / CONTRACT</th>
+                    <th className="px-3 py-3.5">QTY (COPY)</th>
+                    <th className="px-3 py-3.5">LIMIT (COPY)</th>
+                    <th className="px-3 py-3.5">EST. $</th>
+                    <th className="px-4 py-3.5">LIVE SPOT &amp; EXECUTION NOTE</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[var(--border)]">
+                <tbody className="divide-y divide-[var(--color-rule)]">
                   {filteredTickets.map((t) => {
                     const done = checkedSet.has(t.id)
                     const isMarket = t.limitPrice.toLowerCase() === 'market'
+                    const symChipId = `sym-${t.id}`
                     const qtyChipId = `qty-${t.id}`
                     const limChipId = `lim-${t.id}`
 
                     return (
                       <tr
                         key={t.id}
-                        className={`transition-opacity hover:bg-white/[0.02] ${
-                          done ? 'opacity-40' : ''
+                        className={`transition-colors hover:bg-[var(--color-paper-3)]/50 ${
+                          done ? 'opacity-45' : ''
                         }`}
                       >
-                        <td className="px-3 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={done}
-                            onChange={() => toggleRow(t.id)}
-                            className="h-4 w-4 cursor-pointer accent-emerald-400"
-                          />
+                        <td className="p-0 text-center">
+                          <label className="flex min-h-[44px] min-w-[44px] items-center justify-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={done}
+                              onChange={() => toggleRow(t.id)}
+                              aria-label={`Mark ${t.symbol} ${t.action} entered`}
+                              className="h-4 w-4 cursor-pointer accent-[var(--color-accent)]"
+                            />
+                          </label>
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
-                          <div className="font-medium text-[var(--ink)]">{t.custodian}</div>
-                          <div className="text-[11px] text-[var(--muted)]">{t.account}</div>
+                        <td className="px-3 py-3.5 whitespace-nowrap">
+                          {renderWaveBadge(t.wave)}
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
+                        <td className="px-3 py-3.5 whitespace-nowrap">
+                          <div className="font-medium text-[var(--color-ink)]">{t.custodian}</div>
+                          <div className="font-mono-code text-[10.5px] text-[var(--color-muted)]">
+                            {t.account}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3.5 whitespace-nowrap">
                           {renderActionBadge(t.action)}
                         </td>
-                        <td
-                          className={`px-3 py-3 font-mono-code font-semibold text-[var(--ink)] whitespace-nowrap ${
-                            done ? 'line-through' : ''
-                          }`}
-                        >
-                          {t.symbol}
-                        </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
+                        <td className="px-3 py-3.5 whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => void copyChip(t.qty, qtyChipId)}
-                            title="Click to copy quantity"
-                            className={`rounded border px-2 py-1 font-mono-code text-xs transition-colors ${
-                              copiedKey === qtyChipId
-                                ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
-                                : 'border-[var(--border)] bg-[var(--bg)] text-[var(--ink)] hover:border-[var(--muted)]'
-                            }`}
+                            onClick={() => void copyChip(t.symbol, symChipId, false)}
+                            title="Click to copy symbol"
+                            className={`lumen-press font-mono-code font-semibold text-left cursor-pointer ${
+                              copiedKey === symChipId
+                                ? 'text-[var(--color-pos)]'
+                                : 'text-[var(--color-ink)] hover:text-[var(--color-accent)]'
+                            } ${done ? 'line-through' : ''}`}
                           >
-                            {copiedKey === qtyChipId ? 'Copied' : t.qty}
+                            {copiedKey === symChipId ? 'COPIED ✓' : t.symbol}
                           </button>
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
+                        <td className="px-3 py-3.5 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => void copyChip(t.qty, qtyChipId, true)}
+                            title="Click to copy quantity"
+                            className={`lumen-press min-h-[32px] rounded border px-2.5 py-1 font-mono-code text-xs cursor-pointer ${
+                              copiedKey === qtyChipId
+                                ? 'border-[var(--color-pos-rule)] bg-[var(--color-pos-soft)] text-[var(--color-pos)]'
+                                : 'border-[var(--color-rule-2)] bg-[var(--color-paper)] text-[var(--color-ink)] hover:border-[var(--color-accent)]'
+                            }`}
+                          >
+                            {copiedKey === qtyChipId ? 'COPIED ✓' : t.qty}
+                          </button>
+                        </td>
+                        <td className="px-3 py-3.5 whitespace-nowrap">
                           {isMarket ? (
-                            <span className="font-mono-code text-[11px] text-[var(--muted)]">
-                              Market
+                            <span className="font-mono-code text-[11px] uppercase text-[var(--color-muted)]">
+                              MARKET
                             </span>
                           ) : (
                             <button
                               type="button"
-                              onClick={() => void copyChip(t.limitPrice, limChipId)}
+                              onClick={() => void copyChip(t.limitPrice, limChipId, true)}
                               title="Click to copy limit price"
-                              className={`rounded border px-2 py-1 font-mono-code text-xs transition-colors ${
+                              className={`lumen-press min-h-[32px] rounded border px-2.5 py-1 font-mono-code text-xs cursor-pointer ${
                                 copiedKey === limChipId
-                                  ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
-                                  : 'border-[var(--border)] bg-[var(--bg)] text-[var(--ink)] hover:border-[var(--muted)]'
+                                  ? 'border-[var(--color-pos-rule)] bg-[var(--color-pos-soft)] text-[var(--color-pos)]'
+                                  : 'border-[var(--color-rule-2)] bg-[var(--color-paper)] text-[var(--color-accent)] hover:border-[var(--color-accent)]'
                               }`}
                             >
-                              {copiedKey === limChipId ? 'Copied' : t.limitPrice}
+                              {copiedKey === limChipId ? 'COPIED ✓' : t.limitPrice}
                             </button>
                           )}
                         </td>
-                        <td className="px-3 py-3 font-mono-code text-[var(--ink)] whitespace-nowrap">
+                        <td className="px-3 py-3.5 font-mono-code text-[var(--color-ink)] whitespace-nowrap">
                           {t.estValue}
                         </td>
-                        <td className="px-3 py-3 text-[11px] leading-relaxed text-[var(--muted)] min-w-[240px]">
+                        <td className="px-4 py-3.5 text-[11.5px] leading-relaxed text-[var(--color-muted)] min-w-[250px]">
                           {t.note}
                         </td>
                       </tr>

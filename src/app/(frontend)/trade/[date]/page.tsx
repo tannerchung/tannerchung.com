@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { TradeSheetView } from '@/components/TradeSheetView'
+import { TradeSheetView, type DeskSettingsSummary } from '@/components/TradeSheetView'
 import type {
   TradeSheetKpi,
   TradeSheetStrategy,
@@ -42,7 +42,7 @@ export default async function TradeSheetByDatePage(props: {
     redirect('/trade')
   }
 
-  const [targetRes, allDatesRes] = await Promise.all([
+  const [targetRes, allDatesRes, deskGlobal] = await Promise.all([
     payload.find({
       collection: 'trade-sheets',
       where: { sheetDate: { equals: date } },
@@ -57,6 +57,13 @@ export default async function TradeSheetByDatePage(props: {
       sort: '-sheetDate',
       limit: 30,
     }),
+    payload
+      .findGlobal({
+        slug: 'trade-desk-settings',
+        user,
+        overrideAccess: false,
+      })
+      .catch(() => null),
   ])
 
   const doc = targetRes.docs[0]
@@ -68,8 +75,19 @@ export default async function TradeSheetByDatePage(props: {
     .map((d) => d.sheetDate)
     .filter((d): d is string => typeof d === 'string')
 
+  const deskSettings: DeskSettingsSummary | undefined = deskGlobal
+    ? {
+        cashFloorTarget: deskGlobal.cashFloorTarget,
+        maxOptionSpreadPct: deskGlobal.maxOptionSpreadPct,
+        taxShieldReadout: deskGlobal.taxShieldReadout,
+        washSaleBlackoutThrough: deskGlobal.washSaleBlackoutThrough,
+        washSaleTickers: deskGlobal.washSaleTickers,
+      }
+    : undefined
+
   return (
     <TradeSheetView
+      key={doc.sheetDate}
       sheetDate={doc.sheetDate}
       title={doc.title}
       subtitle={doc.subtitle}
@@ -96,6 +114,7 @@ export default async function TradeSheetByDatePage(props: {
       initialQuotesRefreshedAt={doc.quotesRefreshedAt}
       availableDates={availableDates}
       initialTab={initialTab}
+      deskSettings={deskSettings}
     />
   )
 }

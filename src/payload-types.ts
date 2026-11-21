@@ -64,6 +64,7 @@ export type SupportedTimezones =
 export interface Config {
   auth: {
     users: UserAuthOperations;
+    'payload-mcp-api-keys': PayloadMcpApiKeyAuthOperations;
   };
   blocks: {};
   collections: {
@@ -74,6 +75,7 @@ export interface Config {
     experiments: Experiment;
     'trade-notes': TradeNote;
     'trade-sheets': TradeSheet;
+    'payload-mcp-api-keys': PayloadMcpApiKey;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -88,6 +90,7 @@ export interface Config {
     experiments: ExperimentsSelect<false> | ExperimentsSelect<true>;
     'trade-notes': TradeNotesSelect<false> | TradeNotesSelect<true>;
     'trade-sheets': TradeSheetsSelect<false> | TradeSheetsSelect<true>;
+    'payload-mcp-api-keys': PayloadMcpApiKeysSelect<false> | PayloadMcpApiKeysSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -97,19 +100,43 @@ export interface Config {
     defaultIDType: string;
   };
   fallbackLocale: null;
-  globals: {};
-  globalsSelect: {};
+  globals: {
+    'site-settings': SiteSetting;
+    'trade-desk-settings': TradeDeskSetting;
+  };
+  globalsSelect: {
+    'site-settings': SiteSettingsSelect<false> | SiteSettingsSelect<true>;
+    'trade-desk-settings': TradeDeskSettingsSelect<false> | TradeDeskSettingsSelect<true>;
+  };
   locale: null;
   widgets: {
     collections: CollectionsWidget;
   };
-  user: User;
+  user: User | PayloadMcpApiKey;
   jobs: {
     tasks: unknown;
     workflows: unknown;
   };
 }
 export interface UserAuthOperations {
+  forgotPassword: {
+    email: string;
+    password: string;
+  };
+  login: {
+    email: string;
+    password: string;
+  };
+  registerFirstUser: {
+    email: string;
+    password: string;
+  };
+  unlock: {
+    email: string;
+    password: string;
+  };
+}
+export interface PayloadMcpApiKeyAuthOperations {
   forgotPassword: {
     email: string;
     password: string;
@@ -392,6 +419,144 @@ export interface TradeSheet {
   createdAt: string;
 }
 /**
+ * API keys control which collections, resources, tools, and prompts MCP clients can access
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-mcp-api-keys".
+ */
+export interface PayloadMcpApiKey {
+  id: string;
+  /**
+   * The user that the API key is associated with.
+   */
+  user: string | User;
+  /**
+   * A useful label for the API key.
+   */
+  label?: string | null;
+  /**
+   * The purpose of the API key.
+   */
+  description?: string | null;
+  projects?: {
+    /**
+     * Allow clients to find projects.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create projects.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update projects.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete projects.
+     */
+    delete?: boolean | null;
+  };
+  posts?: {
+    /**
+     * Allow clients to find posts.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create posts.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update posts.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete posts.
+     */
+    delete?: boolean | null;
+  };
+  experiments?: {
+    /**
+     * Allow clients to find experiments.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create experiments.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update experiments.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete experiments.
+     */
+    delete?: boolean | null;
+  };
+  tradeNotes?: {
+    /**
+     * Allow clients to find trade-notes.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create trade-notes.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update trade-notes.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete trade-notes.
+     */
+    delete?: boolean | null;
+  };
+  tradeSheets?: {
+    /**
+     * Allow clients to find trade-sheets.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create trade-sheets.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update trade-sheets.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete trade-sheets.
+     */
+    delete?: boolean | null;
+  };
+  siteSettings?: {
+    /**
+     * Allow clients to find site-settings global.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update site-settings global.
+     */
+    update?: boolean | null;
+  };
+  tradeDeskSettings?: {
+    /**
+     * Allow clients to find trade-desk-settings global.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update trade-desk-settings global.
+     */
+    update?: boolean | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+  enableAPIKey?: boolean | null;
+  apiKey?: string | null;
+  apiKeyIndex?: string | null;
+  hasAPIKey?: boolean | null;
+  collection: 'payload-mcp-api-keys';
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -442,12 +607,21 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'trade-sheets';
         value: string | TradeSheet;
+      } | null)
+    | ({
+        relationTo: 'payload-mcp-api-keys';
+        value: string | PayloadMcpApiKey;
       } | null);
   globalSlug?: string | null;
-  user: {
-    relationTo: 'users';
-    value: string | User;
-  };
+  user:
+    | {
+        relationTo: 'users';
+        value: string | User;
+      }
+    | {
+        relationTo: 'payload-mcp-api-keys';
+        value: string | PayloadMcpApiKey;
+      };
   updatedAt: string;
   createdAt: string;
 }
@@ -457,10 +631,15 @@ export interface PayloadLockedDocument {
  */
 export interface PayloadPreference {
   id: string;
-  user: {
-    relationTo: 'users';
-    value: string | User;
-  };
+  user:
+    | {
+        relationTo: 'users';
+        value: string | User;
+      }
+    | {
+        relationTo: 'payload-mcp-api-keys';
+        value: string | PayloadMcpApiKey;
+      };
   key?: string | null;
   value?:
     | {
@@ -650,6 +829,73 @@ export interface TradeSheetsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-mcp-api-keys_select".
+ */
+export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
+  user?: T;
+  label?: T;
+  description?: T;
+  projects?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  posts?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  experiments?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  tradeNotes?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  tradeSheets?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  siteSettings?:
+    | T
+    | {
+        find?: T;
+        update?: T;
+      };
+  tradeDeskSettings?:
+    | T
+    | {
+        find?: T;
+        update?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  enableAPIKey?: T;
+  apiKey?: T;
+  apiKeyIndex?: T;
+  hasAPIKey?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv_select".
  */
 export interface PayloadKvSelect<T extends boolean = true> {
@@ -687,6 +933,84 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   batch?: T;
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-settings".
+ */
+export interface SiteSetting {
+  id: string;
+  siteName: string;
+  tagline?: string | null;
+  locationReadout?: string | null;
+  /**
+   * Active visual design language from cataloged skills.
+   */
+  activeTheme: 'lumen' | 'grid' | 'cobalt';
+  /**
+   * Default palette physics drop (visitor can also toggle Night/Day).
+   */
+  defaultDrop: 'night' | 'day';
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "trade-desk-settings".
+ */
+export interface TradeDeskSetting {
+  id: string;
+  deskLabel: string;
+  cashFloorTarget?: string | null;
+  maxOptionSpreadPct?: number | null;
+  taxShieldReadout?: string | null;
+  washSaleBlackoutThrough?: string | null;
+  washSaleTickers?: string | null;
+  standingGuardrails?:
+    | {
+        code: string;
+        rule: string;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-settings_select".
+ */
+export interface SiteSettingsSelect<T extends boolean = true> {
+  siteName?: T;
+  tagline?: T;
+  locationReadout?: T;
+  activeTheme?: T;
+  defaultDrop?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "trade-desk-settings_select".
+ */
+export interface TradeDeskSettingsSelect<T extends boolean = true> {
+  deskLabel?: T;
+  cashFloorTarget?: T;
+  maxOptionSpreadPct?: T;
+  taxShieldReadout?: T;
+  washSaleBlackoutThrough?: T;
+  washSaleTickers?: T;
+  standingGuardrails?:
+    | T
+    | {
+        code?: T;
+        rule?: T;
+        id?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
