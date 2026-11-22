@@ -1,0 +1,10 @@
+{
+  "id": "tannerchung-com",
+  "name": "TannerChung.com & Trade Desk Portal",
+  "type": "web-platform",
+  "archetype": "web_platform",
+  "lifecycle": "active",
+  "framework": "nextjs-payload",
+  "deploy_target": "vercel",
+  "domains": ["tannerchung.com", "trade.tannerchung.com"]
+}
