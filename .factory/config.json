@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "base_branch": "main",
+  "concurrency": 2,
+  "max_rounds": 3,
+  "merge_policy": "pr-report",
+  "merge_method": "squash",
+  "gate_timeout_s": 300,
+  "ports": {
+    "base": 5100,
+    "stride": 10
+  },
+  "labels": {
+    "queue": "factory",
+    "needs_info": "factory:needs-info",
+    "needs_human": "factory:needs-human"
+  },
+  "protected_paths": [
+    ".factory/",
+    "factory/",
+    ".github/workflows/"
+  ],
+  "routing": {
+    "risk": {
+      "low": {
+        "builder_model": "gemini-4-neon",
+        "reviewers": {
+          "code": "gemini-4-hydrogen"
+        }
+      },
+      "medium": {
+        "builder_model": "gemini-4-carbon",
+        "reviewers": {
+          "code": "gemini-4-neon",
+          "ux": "gemini-4-hydrogen"
+        }
+      },
+      "high": {
+        "builder_model": "gemini-4-carbon",
+        "reviewers": {
+          "code": "gemini-4-carbon",
+          "security": "claude-sonnet"
+        }
+      }
+    },
+    "surface_reviewers": {
+      "ui": {
+        "ui": "gemini-4-neon",
+        "ux": "gemini-4-hydrogen"
+      },
+      "security": {
+        "security": "claude-sonnet"
+      },
+      "infra": {
+        "infra": "gemini-4-carbon"
+      }
+    }
+  }
+}

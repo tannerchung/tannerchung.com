@@ -10,3 +10,5 @@ coverage
 .DS_Store
 .env*
 next-env.d.ts
+.factory/jobs/
+.worktrees/
