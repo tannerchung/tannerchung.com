@@ -1,5 +1,7 @@
 import type { CollectionConfig, Where } from 'payload'
+import { BlocksFeature, lexicalEditor } from '@payloadcms/richtext-lexical'
 import { isAdmin, publishedOrAdmin } from '@/access/roles'
+import { TRADE_NOTE_LEXICAL_BLOCKS } from '@/blocks/trade-desk'
 
 export const Projects: CollectionConfig = {
   slug: 'projects',
@@ -74,14 +76,60 @@ export const Experiments: CollectionConfig = {
 
 export const TradeNotes: CollectionConfig = {
   slug: 'trade-notes',
-  admin: { useAsTitle: 'title', defaultColumns: ['title', 'ticker', 'strategy', 'updatedAt'] },
+  versions: { drafts: true },
+  admin: {
+    useAsTitle: 'title',
+    defaultColumns: ['title', 'ticker', 'conviction', 'valuationZone', '_status', 'updatedAt'],
+  },
   access: { read: isAdmin, create: isAdmin, update: isAdmin, delete: isAdmin },
   fields: [
     { name: 'title', type: 'text', required: true },
     { name: 'ticker', type: 'text', index: true },
+    {
+      name: 'conviction',
+      type: 'select',
+      defaultValue: 'high',
+      options: [
+        { label: 'High', value: 'high' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Watch', value: 'watch' },
+        { label: 'Avoid', value: 'avoid' },
+      ],
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'valuationZone',
+      type: 'select',
+      defaultValue: 'hold_zone',
+      options: [
+        { label: 'Buy Zone', value: 'buy_zone' },
+        { label: 'Hold Zone', value: 'hold_zone' },
+        { label: 'Trim Zone', value: 'trim_zone' },
+      ],
+      admin: { position: 'sidebar' },
+    },
     { name: 'strategy', type: 'text' },
-    { name: 'thesis', type: 'richText' },
+    {
+      name: 'thesis',
+      type: 'richText',
+      editor: lexicalEditor({
+        features: ({ defaultFeatures }) => [
+          ...defaultFeatures,
+          BlocksFeature({ blocks: TRADE_NOTE_LEXICAL_BLOCKS }),
+        ],
+      }),
+    },
     { name: 'metricsJson', type: 'json' },
     { name: 'sheetUrl', type: 'text' },
+    {
+      name: 'referencedInSheets',
+      type: 'join',
+      collection: 'trade-sheets',
+      on: 'relatedTradeNotes',
+      admin: {
+        allowCreate: false,
+        defaultColumns: ['sheetDate', 'title', 'sourceMode', 'updatedAt'],
+      },
+    },
   ],
 }
