@@ -81,7 +81,11 @@ export interface Config {
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
   };
-  collectionsJoins: {};
+  collectionsJoins: {
+    'trade-notes': {
+      referencedInSheets: 'trade-sheets';
+    };
+  };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
@@ -339,6 +343,8 @@ export interface TradeNote {
   id: string;
   title: string;
   ticker?: string | null;
+  conviction?: ('high' | 'medium' | 'watch' | 'avoid') | null;
+  valuationZone?: ('buy_zone' | 'hold_zone' | 'trim_zone') | null;
   strategy?: string | null;
   thesis?: {
     root: {
@@ -365,8 +371,14 @@ export interface TradeNote {
     | boolean
     | null;
   sheetUrl?: string | null;
+  referencedInSheets?: {
+    docs?: (string | TradeSheet)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
+  _status?: ('draft' | 'published') | null;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -375,27 +387,13 @@ export interface TradeNote {
 export interface TradeSheet {
   id: string;
   sheetDate: string;
+  sourceMode?: ('curated' | 'auto_vm' | 'manual') | null;
+  executionProgress?: string | null;
+  quotesRefreshedAt?: string | null;
+  relatedTradeNotes?: (string | TradeNote)[] | null;
   title: string;
   subtitle?: string | null;
   alertBanner?: string | null;
-  kpisJson?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  strategyJson?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
   ticketsJson?:
     | {
         [k: string]: unknown;
@@ -414,7 +412,151 @@ export interface TradeSheet {
     | number
     | boolean
     | null;
-  quotesRefreshedAt?: string | null;
+  briefingBlocks?:
+    | (
+        | {
+            posture: 'risk_on' | 'balanced' | 'defensive' | 'stand_aside';
+            mandateHeadline: string;
+            cashFloorGate?: string | null;
+            regimeCall?: string | null;
+            summaryPoints?:
+              | {
+                  text: string;
+                  id?: string | null;
+                }[]
+              | null;
+            holdOffNotes?:
+              | {
+                  note: string;
+                  id?: string | null;
+                }[]
+              | null;
+            /**
+             * Comma-separated citation indices, e.g. "1, 2"
+             */
+            citationRefs?: string | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'executiveMandate';
+          }
+        | {
+            sectionTitle?: string | null;
+            items?:
+              | {
+                  ticker: string;
+                  action: string;
+                  conviction?: ('high' | 'medium' | 'low' | 'trim' | 'hold') | null;
+                  horizon?: string | null;
+                  rationale: string;
+                  keyRisks?: string | null;
+                  citationRefs?: string | null;
+                  id?: string | null;
+                }[]
+              | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'moveRationales';
+          }
+        | {
+            topic: string;
+            consensusSummary?: string | null;
+            dissentHeadline?: string | null;
+            strongestUnresolvedObjection?: string | null;
+            seats?:
+              | {
+                  seatKey: string;
+                  seatName: string;
+                  stance: 'approve' | 'caution' | 'dissent' | 'abstain';
+                  thesis: string;
+                  objection?: string | null;
+                  citationRefs?: string | null;
+                  id?: string | null;
+                }[]
+              | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'panelDebates';
+          }
+        | {
+            challengerTitle?: string | null;
+            overallSeverity?: ('low' | 'elevated' | 'critical') | null;
+            preMortemSummary: string;
+            blindSpots?:
+              | {
+                  category?:
+                    ('macro' | 'concentration' | 'liquidity' | 'tax_wash_sale' | 'options_pin' | 'valuation') | null;
+                  severity?: ('low' | 'medium' | 'high') | null;
+                  claim: string;
+                  mitigation?: string | null;
+                  citationRefs?: string | null;
+                  id?: string | null;
+                }[]
+              | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'redTeamChallenger';
+          }
+        | {
+            windowLabel?: string | null;
+            items?:
+              | {
+                  ticker?: string | null;
+                  headline: string;
+                  catalystKind?: ('sec_filing' | 'earnings' | 'macro' | 'analyst' | 'geopolitical') | null;
+                  impactSummary?: string | null;
+                  publishedAt?: string | null;
+                  citationIndex?: number | null;
+                  id?: string | null;
+                }[]
+              | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'newsCatalysts';
+          }
+        | {
+            author?: string | null;
+            pinToTop?: boolean | null;
+            scope?: ('session' | 'ticker' | 'risk_override' | 'post_mortem') | null;
+            ticker?: string | null;
+            heading: string;
+            body: string;
+            createdAtNote?: string | null;
+            id?: string | null;
+            blockName?: string | null;
+            blockType: 'deskAnnotation';
+          }
+      )[]
+    | null;
+  strategyJson?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  kpisJson?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  citations?:
+    | {
+        index: number;
+        ticker?: string | null;
+        source: string;
+        kind?: ('sec_filing' | 'news' | 'macro' | 'research') | null;
+        label: string;
+        url: string;
+        publishedAt?: string | null;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -803,12 +945,16 @@ export interface ExperimentsSelect<T extends boolean = true> {
 export interface TradeNotesSelect<T extends boolean = true> {
   title?: T;
   ticker?: T;
+  conviction?: T;
+  valuationZone?: T;
   strategy?: T;
   thesis?: T;
   metricsJson?: T;
   sheetUrl?: T;
+  referencedInSheets?: T;
   updatedAt?: T;
   createdAt?: T;
+  _status?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -816,14 +962,146 @@ export interface TradeNotesSelect<T extends boolean = true> {
  */
 export interface TradeSheetsSelect<T extends boolean = true> {
   sheetDate?: T;
+  sourceMode?: T;
+  executionProgress?: T;
+  quotesRefreshedAt?: T;
+  relatedTradeNotes?: T;
   title?: T;
   subtitle?: T;
   alertBanner?: T;
-  kpisJson?: T;
-  strategyJson?: T;
   ticketsJson?: T;
   checkedRowIds?: T;
-  quotesRefreshedAt?: T;
+  briefingBlocks?:
+    | T
+    | {
+        executiveMandate?:
+          | T
+          | {
+              posture?: T;
+              mandateHeadline?: T;
+              cashFloorGate?: T;
+              regimeCall?: T;
+              summaryPoints?:
+                | T
+                | {
+                    text?: T;
+                    id?: T;
+                  };
+              holdOffNotes?:
+                | T
+                | {
+                    note?: T;
+                    id?: T;
+                  };
+              citationRefs?: T;
+              id?: T;
+              blockName?: T;
+            };
+        moveRationales?:
+          | T
+          | {
+              sectionTitle?: T;
+              items?:
+                | T
+                | {
+                    ticker?: T;
+                    action?: T;
+                    conviction?: T;
+                    horizon?: T;
+                    rationale?: T;
+                    keyRisks?: T;
+                    citationRefs?: T;
+                    id?: T;
+                  };
+              id?: T;
+              blockName?: T;
+            };
+        panelDebates?:
+          | T
+          | {
+              topic?: T;
+              consensusSummary?: T;
+              dissentHeadline?: T;
+              strongestUnresolvedObjection?: T;
+              seats?:
+                | T
+                | {
+                    seatKey?: T;
+                    seatName?: T;
+                    stance?: T;
+                    thesis?: T;
+                    objection?: T;
+                    citationRefs?: T;
+                    id?: T;
+                  };
+              id?: T;
+              blockName?: T;
+            };
+        redTeamChallenger?:
+          | T
+          | {
+              challengerTitle?: T;
+              overallSeverity?: T;
+              preMortemSummary?: T;
+              blindSpots?:
+                | T
+                | {
+                    category?: T;
+                    severity?: T;
+                    claim?: T;
+                    mitigation?: T;
+                    citationRefs?: T;
+                    id?: T;
+                  };
+              id?: T;
+              blockName?: T;
+            };
+        newsCatalysts?:
+          | T
+          | {
+              windowLabel?: T;
+              items?:
+                | T
+                | {
+                    ticker?: T;
+                    headline?: T;
+                    catalystKind?: T;
+                    impactSummary?: T;
+                    publishedAt?: T;
+                    citationIndex?: T;
+                    id?: T;
+                  };
+              id?: T;
+              blockName?: T;
+            };
+        deskAnnotation?:
+          | T
+          | {
+              author?: T;
+              pinToTop?: T;
+              scope?: T;
+              ticker?: T;
+              heading?: T;
+              body?: T;
+              createdAtNote?: T;
+              id?: T;
+              blockName?: T;
+            };
+      };
+  strategyJson?: T;
+  kpisJson?: T;
+  citations?:
+    | T
+    | {
+        index?: T;
+        ticker?: T;
+        source?: T;
+        kind?: T;
+        label?: T;
+        url?: T;
+        publishedAt?: T;
+        id?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -973,6 +1251,21 @@ export interface TradeDeskSetting {
         id?: string | null;
       }[]
     | null;
+  ipsTargets?: {
+    targetBetaMax?: number | null;
+    minCashFloorUsd?: number | null;
+    coreAllocationTargetPct?: number | null;
+    satelliteMaxSingleWeightPct?: number | null;
+  };
+  icSeats?:
+    | {
+        seatKey: string;
+        displayName: string;
+        archetype: string;
+        mandate: string;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -1006,6 +1299,23 @@ export interface TradeDeskSettingsSelect<T extends boolean = true> {
     | {
         code?: T;
         rule?: T;
+        id?: T;
+      };
+  ipsTargets?:
+    | T
+    | {
+        targetBetaMax?: T;
+        minCashFloorUsd?: T;
+        coreAllocationTargetPct?: T;
+        satelliteMaxSingleWeightPct?: T;
+      };
+  icSeats?:
+    | T
+    | {
+        seatKey?: T;
+        displayName?: T;
+        archetype?: T;
+        mandate?: T;
         id?: T;
       };
   updatedAt?: T;

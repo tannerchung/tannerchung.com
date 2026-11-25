@@ -16,21 +16,34 @@ export async function PATCH(
   }
 
   const { date } = await context.params
-  let body: { checkedRowIds?: unknown }
+  let body: { checkedRowIds?: unknown; rowId?: unknown; checked?: unknown }
   try {
-    body = (await req.json()) as { checkedRowIds?: unknown }
+    body = (await req.json()) as { checkedRowIds?: unknown; rowId?: unknown; checked?: unknown }
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const checkedRowIds = Array.isArray(body.checkedRowIds)
-    ? body.checkedRowIds.filter((x): x is string => typeof x === 'string').slice(0, 200)
-    : []
+  const hasAtomicToggle =
+    typeof body.rowId === 'string' &&
+    body.rowId.trim().length > 0 &&
+    typeof body.checked === 'boolean'
+  const hasFullList = Array.isArray(body.checkedRowIds)
+
+  if (!hasAtomicToggle && !hasFullList) {
+    return NextResponse.json(
+      { ok: false, error: 'Provide either { rowId, checked } or { checkedRowIds: string[] }' },
+      { status: 400 },
+    )
+  }
 
   const existing = await payload.find({
     collection: 'trade-sheets',
     where: { sheetDate: { equals: date } },
     limit: 1,
+    depth: 0,
+    select: {
+      checkedRowIds: true,
+    },
     user,
     overrideAccess: false,
   })
@@ -39,12 +52,37 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: 'Sheet not found' }, { status: 404 })
   }
 
+  let nextCheckedRowIds: string[]
+  if (hasAtomicToggle) {
+    const targetRowId = String(body.rowId).trim()
+    const currentRaw = existing.docs[0].checkedRowIds
+    const currentIds = Array.isArray(currentRaw)
+      ? currentRaw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      : []
+    const nextSet = new Set(currentIds)
+    if (body.checked) {
+      nextSet.add(targetRowId)
+    } else {
+      nextSet.delete(targetRowId)
+    }
+    nextCheckedRowIds = Array.from(nextSet).slice(0, 200)
+  } else {
+    nextCheckedRowIds = Array.from(
+      new Set(
+        (body.checkedRowIds as unknown[])
+          .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+          .map((x) => x.trim()),
+      ),
+    ).slice(0, 200)
+  }
+
   const updated = await payload.update({
     collection: 'trade-sheets',
     id: existing.docs[0].id,
+    depth: 0,
     user,
     overrideAccess: false,
-    data: { checkedRowIds },
+    data: { checkedRowIds: nextCheckedRowIds },
   })
 
   return NextResponse.json({

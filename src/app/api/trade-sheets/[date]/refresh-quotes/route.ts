@@ -61,6 +61,20 @@ export async function POST(
         .filter((s): s is string => Boolean(s)),
     ),
   )
+  const requestedCount = uniqueTickers.length
+  const prevRefreshedAt =
+    typeof doc.quotesRefreshedAt === 'string' ? doc.quotesRefreshedAt : null
+
+  if (requestedCount === 0) {
+    return NextResponse.json({
+      ok: true,
+      refreshedCount: 0,
+      requestedCount: 0,
+      failedTickers: [],
+      quotesRefreshedAt: prevRefreshedAt,
+      ticketsJson: tickets,
+    })
+  }
 
   const quoteEntries = await Promise.all(
     uniqueTickers.map(async (sym) => [sym, await fetchYahooSpot(sym)] as const),
@@ -68,6 +82,22 @@ export async function POST(
   const quoteMap = new Map<string, number>()
   for (const [sym, px] of quoteEntries) {
     if (px !== null) quoteMap.set(sym, px)
+  }
+
+  const failedTickers = uniqueTickers.filter((sym) => !quoteMap.has(sym))
+
+  if (quoteMap.size === 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Upstream quote provider returned 0 live prices. Previous quotes preserved.',
+        refreshedCount: 0,
+        requestedCount,
+        failedTickers,
+        quotesRefreshedAt: prevRefreshedAt,
+      },
+      { status: 502 },
+    )
   }
 
   const nowIso = new Date().toISOString()
@@ -80,6 +110,7 @@ export async function POST(
   const updated = await payload.update({
     collection: 'trade-sheets',
     id: doc.id,
+    depth: 0,
     user,
     overrideAccess: false,
     data: {
@@ -91,6 +122,8 @@ export async function POST(
   return NextResponse.json({
     ok: true,
     refreshedCount: quoteMap.size,
+    requestedCount,
+    failedTickers,
     quotesRefreshedAt: updated.quotesRefreshedAt,
     ticketsJson: updated.ticketsJson,
   })

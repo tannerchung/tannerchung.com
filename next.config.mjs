@@ -15,7 +15,20 @@ const nextConfig = {
     if (!isProd) {
       baseHeaders.push({ key: 'X-Robots-Tag', value: 'noindex, nofollow' })
     }
-    return [{ source: '/:path*', headers: baseHeaders }]
+    const tradePreviewHeaders = [
+      { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+      { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+    ]
+    if (!isProd) {
+      tradePreviewHeaders.push({ key: 'X-Robots-Tag', value: 'noindex, nofollow' })
+    }
+    return [
+      { source: '/:path*', headers: baseHeaders },
+      { source: '/trade', headers: tradePreviewHeaders },
+      { source: '/trade/:path*', headers: tradePreviewHeaders },
+    ]
   },
 }
 
