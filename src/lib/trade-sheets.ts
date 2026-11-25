@@ -199,8 +199,9 @@ export function reanchorTicketWithSpot(
     const newLim = roundMarketableLimit(spot * mult)
     const estDollars = qtyNum > 0 ? Math.round(qtyNum * newLim) : null
     const cleanNote = ticket.note.replace(/Live \$[0-9,.]+/i, `Live ${formatUsd(spot, 2)}`)
-    const finalNote =
+    const prefixedNote =
       cleanNote === ticket.note ? `Live ${formatUsd(spot, 2)} · ${ticket.note}` : cleanNote
+    const finalNote = prefixedNote.replace(/\s*·\s*(?:Mon|Tue|Wed|Thu|Fri)\s+EOD\s+\$[0-9,.]+/gi, '')
 
     return {
       ...ticket,

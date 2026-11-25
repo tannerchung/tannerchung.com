@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type {
   TradeSheetKpi,
@@ -106,6 +106,18 @@ export function TradeSheetView({
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
+  useEffect(() => {
+    setTickets(initialTickets)
+  }, [initialTickets])
+
+  useEffect(() => {
+    setCheckedSet(new Set(initialCheckedIds))
+  }, [initialCheckedIds])
+
+  useEffect(() => {
+    setQuotesUpdatedAt(initialQuotesRefreshedAt ?? null)
+  }, [initialQuotesRefreshedAt])
+
   const custodians = useMemo(() => {
     const seen = new Set<string>()
     for (const t of tickets) {
@@ -151,7 +163,13 @@ export function TradeSheetView({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ checkedRowIds: nextIds }),
+        redirect: 'manual',
       })
+      if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) {
+        setSyncStatus('Saved locally (sign in again to sync)')
+        setTimeout(() => setSyncStatus(null), 3000)
+        return
+      }
       if (!res.ok) throw new Error('Sync failed')
       setSyncStatus('Synced to Supabase')
       setTimeout(() => setSyncStatus(null), 1800)
@@ -196,8 +214,13 @@ export function TradeSheetView({
     try {
       const res = await fetch(
         `/api/trade-sheets/${encodeURIComponent(sheetDate)}/refresh-quotes`,
-        { method: 'POST' },
+        { method: 'POST', redirect: 'manual' },
       )
+      if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) {
+        setSyncStatus('Session expired — reloading to re-authenticate…')
+        window.location.reload()
+        return
+      }
       const data = (await res.json()) as {
         ok?: boolean
         refreshedCount?: number

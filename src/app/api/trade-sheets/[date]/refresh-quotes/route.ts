@@ -16,6 +16,7 @@ async function fetchYahooSpot(symbol: string): Promise<number | null> {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
       cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) return null
     const data = (await res.json()) as {

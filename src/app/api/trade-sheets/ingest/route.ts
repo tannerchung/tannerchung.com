@@ -11,9 +11,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
+  const contentLength = Number(req.headers.get('content-length') || '0')
+  if (Number.isFinite(contentLength) && contentLength > 262_144) {
+    return NextResponse.json({ ok: false, error: 'Payload too large' }, { status: 413 })
+  }
+
   let body: unknown
   try {
-    body = await req.json()
+    const rawText = await req.text()
+    if (Buffer.byteLength(rawText, 'utf8') > 262_144) {
+      return NextResponse.json({ ok: false, error: 'Payload too large' }, { status: 413 })
+    }
+    body = JSON.parse(rawText)
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 })
   }
@@ -36,7 +45,26 @@ export async function POST(req: Request) {
     overrideAccess: true,
   })
 
-  const nowIso = new Date().toISOString()
+  const explicitQuoteIso =
+    body &&
+    typeof body === 'object' &&
+    typeof (body as Record<string, unknown>).quotesRefreshedAt === 'string' &&
+    !Number.isNaN(Date.parse((body as Record<string, unknown>).quotesRefreshedAt as string))
+      ? new Date(Date.parse((body as Record<string, unknown>).quotesRefreshedAt as string)).toISOString()
+      : null
+
+  let latestTicketQuoteMs = -Infinity
+  let latestTicketQuoteIso: string | null = null
+  for (const t of cleaned.ticketsJson) {
+    if (typeof t.quoteUpdatedAt === 'string') {
+      const ms = Date.parse(t.quoteUpdatedAt)
+      if (!Number.isNaN(ms) && ms > latestTicketQuoteMs) {
+        latestTicketQuoteMs = ms
+        latestTicketQuoteIso = new Date(ms).toISOString()
+      }
+    }
+  }
+  const effectiveQuotesRefreshedAt = explicitQuoteIso ?? latestTicketQuoteIso
 
   if (existing.docs.length > 0) {
     const prev = existing.docs[0]
@@ -60,7 +88,9 @@ export async function POST(req: Request) {
         strategyJson: cleaned.strategyJson,
         ticketsJson: cleaned.ticketsJson,
         checkedRowIds: preservedChecks,
-        quotesRefreshedAt: nowIso,
+        quotesRefreshedAt:
+          effectiveQuotesRefreshedAt ??
+          (typeof prev.quotesRefreshedAt === 'string' ? prev.quotesRefreshedAt : null),
       },
     })
 
@@ -85,7 +115,7 @@ export async function POST(req: Request) {
       strategyJson: cleaned.strategyJson,
       ticketsJson: cleaned.ticketsJson,
       checkedRowIds: [],
-      quotesRefreshedAt: nowIso,
+      quotesRefreshedAt: effectiveQuotesRefreshedAt,
     },
   })
 

@@ -12,7 +12,7 @@
 
 ### Milestone 4 — Production Security & Resilience Hardening *(Next)*
 - [ ] Fail closed in `src/payload.config.ts` when `NODE_ENV === 'production'` and `PAYLOAD_SECRET` is unset (remove silent fallback in prod).
-- [ ] Enforce explicit `256KB` request payload cap in `POST /api/trade-sheets/ingest` (matching `ecosystem_topology.py` spec) and add `AbortSignal.timeout(8000)` to `fetchYahooSpot()` in `POST /api/trade-sheets/[date]/refresh-quotes`.
+- [x] Enforce explicit `256KB` request payload cap in `POST /api/trade-sheets/ingest` (matching `ecosystem_topology.py` spec), add `AbortSignal.timeout(8000)` to `fetchYahooSpot()` in `POST /api/trade-sheets/[date]/refresh-quotes`, scrub stale weekday `EOD` note tags during quote re-anchoring, and detect expired Cloudflare Access sessions via `redirect: 'manual'` in `TradeSheetView.tsx`.
 - [ ] Harden `resolveTradeLoginRedirect()` in `src/lib/routing.ts` to reject `//` protocol-relative or backslash paths, and wrap `getPayload()` in `/projects`, `/blog`, and `/lab` with graceful degraded error boundaries matching `/`.
 
 ### Milestone 5 — Content Detail Routes & Lab Component Registry

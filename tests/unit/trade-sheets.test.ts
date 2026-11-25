@@ -85,5 +85,26 @@ describe('trade-sheets security & helpers', () => {
     )
     expect(optUpdated.limitPrice).toBe('$2.55')
     expect(optUpdated.note).toContain('Live $254.50')
+
+    const staleTagScrubbed = reanchorTicketWithSpot(
+      {
+        id: 'p1',
+        wave: 'WAVE1',
+        custodian: 'Merrill Edge',
+        account: 'Merrill IRRA-Edge',
+        action: 'SELL',
+        symbol: 'PLTR',
+        qty: '100 sh',
+        limitPrice: '$158.70',
+        estValue: '$15,870',
+        note: 'Day Limit · Mon EOD $159.36 · $0 tax · 0% target weight',
+      },
+      161.18,
+      '2026-11-24T21:30:00.000Z',
+    )
+    expect(staleTagScrubbed.limitPrice).toBe('$160.55')
+    expect(staleTagScrubbed.estValue).toBe('$16,055')
+    expect(staleTagScrubbed.note).toContain('Live $161.18')
+    expect(staleTagScrubbed.note).not.toContain('Mon EOD')
   })
 })
