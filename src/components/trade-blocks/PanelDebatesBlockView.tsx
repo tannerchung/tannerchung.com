@@ -95,7 +95,7 @@ export function PanelDebatesBlockView({
       </div>
 
       <h3
-        className="font-display text-[23px] leading-[1.2] text-[var(--color-ink)] mb-3"
+        className="font-serif-display text-[23px] leading-[1.2] text-[var(--color-ink)] mb-3"
         style={{ fontStyle: 'normal' }}
       >
         {block.topic}

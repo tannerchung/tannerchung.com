@@ -275,7 +275,7 @@ function renderLexicalNode(node: LexicalNode, key: React.Key): React.ReactNode {
     return (
       <h4
         key={key}
-        className="font-display text-[17px] leading-[1.25] text-[var(--color-ink)] mt-3 mb-1.5"
+        className="font-serif-display text-[17px] leading-[1.25] text-[var(--color-ink)] mt-3 mb-1.5"
         style={{ fontStyle: 'normal' }}
       >
         {children}
@@ -398,8 +398,8 @@ export function TradeNoteThesisCard({
       <h3
         className={
           compact
-            ? 'font-display text-[18px] leading-[1.2] text-[var(--color-ink)] mb-2'
-            : 'font-display text-[21px] leading-[1.2] text-[var(--color-ink)] mb-2.5'
+            ? 'font-serif-display text-[18px] leading-[1.2] text-[var(--color-ink)] mb-2'
+            : 'font-serif-display text-[21px] leading-[1.2] text-[var(--color-ink)] mb-2.5'
         }
         style={{ fontStyle: 'normal' }}
       >

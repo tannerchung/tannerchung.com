@@ -26,12 +26,13 @@ function isPrivateOrLocalHost(rawHostname: string): boolean {
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local') ||
-    host.endsWith('.internal')
+    host.endsWith('.internal') ||
+    host.endsWith('.ts.net')
   ) {
     return true
   }
 
-  // IPv6 loopback / unspecified / ULA (fc00::/7) / link-local (fe80::/10) / IPv4-mapped
+  // IPv6 loopback / unspecified / ULA (fc00::/7) / link-local (fe80::/10) / IPv4-mapped / IPv4-compatible
   if (host.includes(':')) {
     if (host === '::1' || host === '::' || host === '0:0:0:0:0:0:0:1') return true
     if (/^f[cd][0-9a-f]{0,2}:/i.test(host)) return true
@@ -41,8 +42,22 @@ function isPrivateOrLocalHost(rawHostname: string): boolean {
       if (/^\d+\.\d+\.\d+\.\d+$/.test(mapped)) {
         return isPrivateIpv4(mapped)
       }
-      // Hex form e.g. ::ffff:7f00:1, ::ffff:a00:1, ::ffff:c0a8:101, ::ffff:a9fe:1
-      if (/^(7f|0?a|c0a8|a9fe|ac1[0-9a-f]|0+:0+)/i.test(mapped)) return true
+      const ipv4FromHex = decodeIpv6HexPairToIpv4(mapped)
+      if (ipv4FromHex) {
+        return isPrivateIpv4(ipv4FromHex)
+      }
+      return true
+    }
+    // Deprecated IPv4-compatible IPv6 (::/96, e.g. ::127.0.0.1 or ::7f00:1)
+    if (host.startsWith('::')) {
+      const compat = host.slice(2)
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(compat)) {
+        return isPrivateIpv4(compat)
+      }
+      const ipv4FromHex = decodeIpv6HexPairToIpv4(compat)
+      if (ipv4FromHex) {
+        return isPrivateIpv4(ipv4FromHex)
+      }
     }
     return false
   }
@@ -57,6 +72,16 @@ function isPrivateOrLocalHost(rawHostname: string): boolean {
   return false
 }
 
+function decodeIpv6HexPairToIpv4(hexSuffix: string): string | null {
+  const parts = hexSuffix.split(':')
+  if (parts.length !== 2) return null
+  if (!/^[0-9a-f]{1,4}$/i.test(parts[0]) || !/^[0-9a-f]{1,4}$/i.test(parts[1])) return null
+  const hi = parseInt(parts[0], 16)
+  const lo = parseInt(parts[1], 16)
+  if (!Number.isInteger(hi) || !Number.isInteger(lo)) return null
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split('.').map((p) => Number(p))
   if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
@@ -65,6 +90,7 @@ function isPrivateIpv4(ip: string): boolean {
   const [a, b] = parts
   if (a === 0) return true // 0.0.0.0/8
   if (a === 10) return true // 10.0.0.0/8
+  if (a === 100 && b >= 64 && b <= 127) return true // 100.64.0.0/10 RFC 6598 CGNAT / Tailscale
   if (a === 127) return true // 127.0.0.0/8
   if (a === 169 && b === 254) return true // 169.254.0.0/16 link-local
   if (a === 172 && b >= 16 && b <= 31) return true // 172.16.0.0/12

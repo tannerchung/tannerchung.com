@@ -81,7 +81,13 @@ export const TradeNotes: CollectionConfig = {
     useAsTitle: 'title',
     defaultColumns: ['title', 'ticker', 'conviction', 'valuationZone', '_status', 'updatedAt'],
   },
-  access: { read: isAdmin, create: isAdmin, update: isAdmin, delete: isAdmin },
+  access: {
+    read: isAdmin,
+    readVersions: isAdmin,
+    create: isAdmin,
+    update: isAdmin,
+    delete: isAdmin,
+  },
   fields: [
     { name: 'title', type: 'text', required: true },
     { name: 'ticker', type: 'text', index: true },

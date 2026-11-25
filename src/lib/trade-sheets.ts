@@ -357,7 +357,14 @@ export interface SanitizedTradeSheetInput {
 // ---------------------------------------------------------------------------
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-const RAW_ACCT_NUM_RE = /\b\d{8,}\b/g
+const RAW_ACCT_NUM_RE = /\b[A-Za-z]?\d{8,}\b/g
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const NUMERIC_ID_RE = /^\d+$/
+
+export function isValidTradeNoteId(id: string): boolean {
+  const trimmed = id.trim()
+  return UUID_RE.test(trimmed) || NUMERIC_ID_RE.test(trimmed)
+}
 
 export function scrubSensitiveText(input: unknown): string {
   if (typeof input !== 'string') return ''
@@ -595,16 +602,267 @@ export function sanitizeCitationsList(
 
     citations.push({
       index: newIdx,
-      ticker: raw.ticker ? String(raw.ticker).trim().toUpperCase() : null,
+      ticker: raw.ticker ? scrubSensitiveText(String(raw.ticker)).toUpperCase() || null : null,
       source: scrubBriefingProse(String(raw.source || 'Wire')) || 'Wire',
       kind: normalizeCitationKind(raw.kind),
       label: scrubBriefingProse(String(raw.label || raw.source || 'Source')) || 'Source',
       url: cleanedUrl,
-      publishedAt: raw.publishedAt ? String(raw.publishedAt).trim() : null,
+      publishedAt: raw.publishedAt ? scrubSensitiveText(String(raw.publishedAt)) || null : null,
     })
   }
 
   return { citations, indexRemap }
+}
+
+const MAX_BRIEFING_BLOCKS = 24
+const MAX_MANDATE_LIST_ITEMS = 20
+const MAX_MOVE_RATIONALES = 150
+const MAX_PANEL_DEBATES = 10
+const MAX_PANEL_SEATS = 12
+const MAX_BLIND_SPOTS = 30
+const MAX_NEWS_CATALYSTS = 50
+
+export function sanitizeRawBriefingBlocks(
+  rawBlocks: unknown[],
+  indexRemap?: Map<number, number>,
+): TradeBriefingBlock[] {
+  const sanitized: TradeBriefingBlock[] = []
+
+  for (const raw of rawBlocks) {
+    if (sanitized.length >= MAX_BRIEFING_BLOCKS) break
+    if (!raw || typeof raw !== 'object') continue
+    const block = raw as Record<string, unknown>
+    const blockType = typeof block.blockType === 'string' ? block.blockType : ''
+
+    // Strictly reject human-owned deskAnnotation blocks from machine ingest
+    if (blockType === 'deskAnnotation') continue
+
+    if (blockType === 'executiveMandate') {
+      const summaryPoints = Array.isArray(block.summaryPoints)
+        ? block.summaryPoints
+            .slice(0, MAX_MANDATE_LIST_ITEMS)
+            .map((p) => {
+              const rawText =
+                typeof p === 'string'
+                  ? p
+                  : p && typeof p === 'object'
+                    ? String((p as Record<string, unknown>).text ?? '')
+                    : ''
+              return scrubBriefingProse(rawText)
+            })
+            .filter(Boolean)
+            .map((text) => ({ text }))
+        : []
+      const holdOffNotes = Array.isArray(block.holdOffNotes)
+        ? block.holdOffNotes
+            .slice(0, MAX_MANDATE_LIST_ITEMS)
+            .map((n) => {
+              const rawNote =
+                typeof n === 'string'
+                  ? n
+                  : n && typeof n === 'object'
+                    ? String((n as Record<string, unknown>).note ?? '')
+                    : ''
+              return scrubBriefingProse(rawNote)
+            })
+            .filter(Boolean)
+            .map((note) => ({ note }))
+        : []
+      const mandateHeadline =
+        scrubBriefingProse(String(block.mandateHeadline ?? block.headline ?? '')) ||
+        'Session Execution Mandate'
+      sanitized.push({
+        blockType: 'executiveMandate',
+        posture: normalizePosture(typeof block.posture === 'string' ? block.posture : undefined),
+        mandateHeadline,
+        cashFloorGate:
+          typeof block.cashFloorGate === 'string'
+            ? scrubBriefingProse(block.cashFloorGate) || null
+            : null,
+        regimeCall:
+          typeof block.regimeCall === 'string'
+            ? scrubBriefingProse(block.regimeCall) || null
+            : null,
+        summaryPoints,
+        holdOffNotes,
+        citationRefs:
+          normalizeCitationRefs(
+            block.citationRefs as string | number[] | null | undefined,
+            indexRemap,
+          ) ?? null,
+      })
+      continue
+    }
+
+    if (blockType === 'moveRationales') {
+      const rawItems = Array.isArray(block.items) ? block.items : []
+      const items = rawItems
+        .slice(0, MAX_MOVE_RATIONALES)
+        .filter((it): it is Record<string, unknown> => Boolean(it && typeof it === 'object'))
+        .map((it) => ({
+          ticker: scrubBriefingProse(String(it.ticker ?? '')).toUpperCase(),
+          action: scrubBriefingProse(String(it.action ?? '')).toUpperCase(),
+          conviction: normalizeConviction(
+            typeof it.conviction === 'string' ? it.conviction : undefined,
+          ),
+          horizon:
+            typeof it.horizon === 'string' ? scrubBriefingProse(it.horizon) || null : null,
+          rationale: scrubBriefingProse(String(it.rationale ?? it.thesis ?? '')),
+          keyRisks:
+            typeof it.keyRisks === 'string' ? scrubBriefingProse(it.keyRisks) || null : null,
+          citationRefs:
+            normalizeCitationRefs(
+              it.citationRefs as string | number[] | null | undefined,
+              indexRemap,
+            ) ?? null,
+        }))
+        .filter((it) => it.ticker && it.rationale)
+      if (items.length > 0) {
+        sanitized.push({
+          blockType: 'moveRationales',
+          sectionTitle:
+            typeof block.sectionTitle === 'string'
+              ? scrubBriefingProse(block.sectionTitle) || 'Ticket-by-Ticket Action Rationale'
+              : 'Ticket-by-Ticket Action Rationale',
+          items,
+        })
+      }
+      continue
+    }
+
+    if (blockType === 'panelDebates') {
+      const rawSeats = Array.isArray(block.seats) ? block.seats : []
+      const seats = rawSeats
+        .slice(0, MAX_PANEL_SEATS)
+        .filter((s): s is Record<string, unknown> => Boolean(s && typeof s === 'object'))
+        .map((s) => {
+          const seatName = scrubBriefingProse(String(s.seatName ?? s.seat ?? '')) || 'IC Member'
+          const seatKey =
+            typeof s.seatKey === 'string' && s.seatKey.trim()
+              ? slugifySeatKey(s.seatKey)
+              : slugifySeatKey(seatName)
+          return {
+            seatKey,
+            seatName,
+            stance: normalizeStance(typeof s.stance === 'string' ? s.stance : undefined),
+            thesis: scrubBriefingProse(String(s.thesis ?? s.summary ?? '')),
+            objection:
+              typeof s.objection === 'string' ? scrubBriefingProse(s.objection) || null : null,
+            citationRefs:
+              normalizeCitationRefs(
+                s.citationRefs as string | number[] | null | undefined,
+                indexRemap,
+              ) ?? null,
+          }
+        })
+        .filter((s) => s.thesis.length > 0)
+      const topic = scrubBriefingProse(String(block.topic ?? '')) || 'Investment Committee Debate'
+      if (seats.length > 0 || block.consensusSummary) {
+        sanitized.push({
+          blockType: 'panelDebates',
+          topic,
+          consensusSummary:
+            typeof block.consensusSummary === 'string'
+              ? scrubBriefingProse(block.consensusSummary) || null
+              : null,
+          dissentHeadline:
+            typeof block.dissentHeadline === 'string'
+              ? scrubBriefingProse(block.dissentHeadline) || null
+              : null,
+          strongestUnresolvedObjection:
+            typeof block.strongestUnresolvedObjection === 'string'
+              ? scrubBriefingProse(block.strongestUnresolvedObjection) || null
+              : null,
+          seats,
+        })
+      }
+      continue
+    }
+
+    if (blockType === 'redTeamChallenger') {
+      const rawSpots = Array.isArray(block.blindSpots) ? block.blindSpots : []
+      const blindSpots = rawSpots
+        .slice(0, MAX_BLIND_SPOTS)
+        .filter((b): b is Record<string, unknown> => Boolean(b && typeof b === 'object'))
+        .map((b) => ({
+          category: normalizeBlindSpotCategory(
+            typeof b.category === 'string' ? b.category : undefined,
+          ),
+          severity: normalizeBlindSpotSeverity(
+            typeof b.severity === 'string' ? b.severity : undefined,
+          ),
+          claim: scrubBriefingProse(String(b.claim ?? '')),
+          mitigation:
+            typeof b.mitigation === 'string' ? scrubBriefingProse(b.mitigation) || null : null,
+          citationRefs:
+            normalizeCitationRefs(
+              b.citationRefs as string | number[] | null | undefined,
+              indexRemap,
+            ) ?? null,
+        }))
+        .filter((b) => b.claim.length > 0)
+      const preMortemSummary = scrubBriefingProse(String(block.preMortemSummary ?? ''))
+      if (preMortemSummary || blindSpots.length > 0) {
+        sanitized.push({
+          blockType: 'redTeamChallenger',
+          challengerTitle:
+            typeof block.challengerTitle === 'string'
+              ? scrubBriefingProse(block.challengerTitle) || null
+              : 'Autonomous Red-Team & Second-Level Blind Spots',
+          overallSeverity: normalizeOverallSeverity(
+            typeof block.overallSeverity === 'string' ? block.overallSeverity : undefined,
+          ),
+          preMortemSummary: preMortemSummary || 'Pre-mortem review of primary blind spots.',
+          blindSpots,
+        })
+      }
+      continue
+    }
+
+    if (blockType === 'newsCatalysts') {
+      const rawItems = Array.isArray(block.items) ? block.items : []
+      const items = rawItems
+        .slice(0, MAX_NEWS_CATALYSTS)
+        .filter((n): n is Record<string, unknown> => Boolean(n && typeof n === 'object'))
+        .map((n) => {
+          const rawIdx =
+            typeof n.citationIndex === 'number' && Number.isInteger(n.citationIndex)
+              ? n.citationIndex
+              : null
+          const mappedIdx = rawIdx ? (indexRemap ? indexRemap.get(rawIdx) ?? null : rawIdx) : null
+          return {
+            ticker:
+              typeof n.ticker === 'string'
+                ? scrubBriefingProse(n.ticker).toUpperCase() || null
+                : null,
+            headline: scrubBriefingProse(String(n.headline ?? '')),
+            catalystKind: normalizeCatalystKind(
+              typeof n.catalystKind === 'string' ? n.catalystKind : undefined,
+            ),
+            impactSummary:
+              typeof n.impactSummary === 'string'
+                ? scrubBriefingProse(n.impactSummary) || null
+                : null,
+            publishedAt:
+              typeof n.publishedAt === 'string' ? scrubSensitiveText(n.publishedAt) || null : null,
+            citationIndex: mappedIdx,
+          }
+        })
+        .filter((n) => n.headline.length > 0)
+      if (items.length > 0) {
+        sanitized.push({
+          blockType: 'newsCatalysts',
+          windowLabel:
+            typeof block.windowLabel === 'string'
+              ? scrubBriefingProse(block.windowLabel) || null
+              : 'Overnight & Market Open',
+          items,
+        })
+      }
+    }
+  }
+
+  return sanitized
 }
 
 export function compileBriefingToPayloadBlocks(
@@ -620,12 +878,14 @@ export function compileBriefingToPayloadBlocks(
   if (mandate && (mandate.mandateHeadline || mandate.headline || mandate.summaryPoints?.length)) {
     const summaryPoints = Array.isArray(mandate.summaryPoints)
       ? mandate.summaryPoints
+          .slice(0, MAX_MANDATE_LIST_ITEMS)
           .map((p) => scrubBriefingProse(typeof p === 'string' ? p : p?.text || ''))
           .filter(Boolean)
           .map((text) => ({ text }))
       : []
     const holdOffNotes = Array.isArray(mandate.holdOffNotes)
       ? mandate.holdOffNotes
+          .slice(0, MAX_MANDATE_LIST_ITEMS)
           .map((n) => scrubBriefingProse(typeof n === 'string' ? n : n?.note || ''))
           .filter(Boolean)
           .map((note) => ({ note }))
@@ -658,10 +918,12 @@ export function compileBriefingToPayloadBlocks(
         'Session Execution Mandate',
       regimeCall: null,
       summaryPoints: (strategyFallback.summaryBullets || [])
+        .slice(0, MAX_MANDATE_LIST_ITEMS)
         .map((s) => scrubBriefingProse(s))
         .filter(Boolean)
         .map((text) => ({ text })),
       holdOffNotes: (strategyFallback.holdOffNotes || [])
+        .slice(0, MAX_MANDATE_LIST_ITEMS)
         .map((n) => scrubBriefingProse(n))
         .filter(Boolean)
         .map((note) => ({ note })),
@@ -683,9 +945,10 @@ export function compileBriefingToPayloadBlocks(
 
   if (rawMoveItems && rawMoveItems.length > 0) {
     const items = rawMoveItems
+      .slice(0, MAX_MOVE_RATIONALES)
       .filter((item) => item && item.ticker && (item.rationale || item.thesis))
       .map((item) => ({
-        ticker: String(item.ticker).trim().toUpperCase(),
+        ticker: scrubBriefingProse(String(item.ticker)).toUpperCase(),
         action: scrubBriefingProse(String(item.action || 'WATCH')).toUpperCase(),
         conviction: normalizeConviction(item.conviction),
         horizon: item.horizon ? scrubBriefingProse(item.horizon) : null,
@@ -711,12 +974,12 @@ export function compileBriefingToPayloadBlocks(
       : [input.panelDebates]
     : []
 
-  for (const debate of rawDebates) {
+  for (const debate of rawDebates.slice(0, MAX_PANEL_DEBATES)) {
     if (!debate) continue
     const seats = Array.isArray(debate.seats)
       ? debate.seats
           .filter((s) => s && (s.seatName || s.seat) && (s.thesis || s.summary))
-          .slice(0, 12)
+          .slice(0, MAX_PANEL_SEATS)
           .map((s) => {
             const name = scrubBriefingProse(s.seatName || s.seat || 'IC Seat')
             return {
@@ -755,6 +1018,7 @@ export function compileBriefingToPayloadBlocks(
   if (redTeam && (redTeam.preMortemSummary || redTeam.blindSpots?.length)) {
     const blindSpots = Array.isArray(redTeam.blindSpots)
       ? redTeam.blindSpots
+          .slice(0, MAX_BLIND_SPOTS)
           .filter((b) => b && b.claim)
           .map((b) => ({
             category: normalizeBlindSpotCategory(b.category),
@@ -794,6 +1058,7 @@ export function compileBriefingToPayloadBlocks(
 
   if (rawNewsItems && rawNewsItems.length > 0) {
     const items = rawNewsItems
+      .slice(0, MAX_NEWS_CATALYSTS)
       .filter((item) => item && item.headline)
       .map((item) => {
         const mappedIndex =
@@ -803,11 +1068,11 @@ export function compileBriefingToPayloadBlocks(
               : item.citationIndex
             : null
         return {
-          ticker: item.ticker ? String(item.ticker).trim().toUpperCase() : null,
+          ticker: item.ticker ? scrubSensitiveText(String(item.ticker)).toUpperCase() || null : null,
           headline: scrubBriefingProse(item.headline),
           catalystKind: normalizeCatalystKind(item.catalystKind),
           impactSummary: item.impactSummary ? scrubBriefingProse(item.impactSummary) : null,
-          publishedAt: item.publishedAt ? String(item.publishedAt).trim() : null,
+          publishedAt: item.publishedAt ? scrubSensitiveText(String(item.publishedAt)) || null : null,
           citationIndex: mappedIndex,
         }
       })
@@ -922,7 +1187,10 @@ export function sanitizeTradeSheetInput(raw: unknown): SanitizedTradeSheetInput 
       estValue: scrubSensitiveText(item.estValue),
       note: scrubSensitiveText(item.note),
       liveQuote: typeof item.liveQuote === 'number' ? item.liveQuote : null,
-      quoteUpdatedAt: typeof item.quoteUpdatedAt === 'string' ? item.quoteUpdatedAt : null,
+      quoteUpdatedAt:
+        typeof item.quoteUpdatedAt === 'string'
+          ? scrubSensitiveText(item.quoteUpdatedAt) || null
+          : null,
     }
   })
 
@@ -947,17 +1215,64 @@ export function sanitizeTradeSheetInput(raw: unknown): SanitizedTradeSheetInput 
     mergedBriefingInput || (Array.isArray(obj.briefingBlocks) && obj.briefingBlocks.length > 0),
   )
 
+  const { citations: topLevelCitations, indexRemap: topLevelIndexRemap } = sanitizeCitationsList(
+    mergedBriefingInput?.citations,
+  )
   const { briefingBlocks: compiledFromBriefing, citations: compiledCitations } =
     compileBriefingToPayloadBlocks(mergedBriefingInput, strategyJson)
 
   const compiledBlocks =
     Array.isArray(obj.briefingBlocks) && obj.briefingBlocks.length > 0
-      ? (obj.briefingBlocks as TradeBriefingBlock[])
+      ? sanitizeRawBriefingBlocks(
+          obj.briefingBlocks,
+          topLevelCitations.length > 0 ? topLevelIndexRemap : undefined,
+        )
       : compiledFromBriefing
 
-  const relatedTradeNotes = Array.isArray(obj.relatedTradeNotes)
-    ? obj.relatedTradeNotes.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-    : undefined
+  // Mirror structured ExecutiveMandate into legacy strategyJson when omitted or empty
+  const mandateBlock = compiledBlocks.find(
+    (b): b is ExecutiveMandateBlockData => b.blockType === 'executiveMandate',
+  )
+  if (mandateBlock) {
+    if (!strategyJson.headline && mandateBlock.mandateHeadline) {
+      strategyJson.headline = mandateBlock.mandateHeadline
+    }
+    if (
+      strategyJson.summaryBullets.length === 0 &&
+      Array.isArray(mandateBlock.summaryPoints) &&
+      mandateBlock.summaryPoints.length > 0
+    ) {
+      strategyJson.summaryBullets = mandateBlock.summaryPoints
+        .map((p) => p.text)
+        .filter((t): t is string => Boolean(t))
+    }
+    if (
+      (strategyJson.holdOffNotes?.length ?? 0) === 0 &&
+      Array.isArray(mandateBlock.holdOffNotes) &&
+      mandateBlock.holdOffNotes.length > 0
+    ) {
+      strategyJson.holdOffNotes = mandateBlock.holdOffNotes
+        .map((n) => n.note)
+        .filter((t): t is string => Boolean(t))
+    }
+  }
+
+  let relatedTradeNotes: string[] | undefined
+  if (Array.isArray(obj.relatedTradeNotes)) {
+    const cleanedIds: string[] = []
+    for (const rawId of obj.relatedTradeNotes.slice(0, 50)) {
+      if (typeof rawId !== 'string' && typeof rawId !== 'number') {
+        throw new Error('relatedTradeNotes entries must be valid UUID or numeric IDs')
+      }
+      const trimmed = String(rawId).trim()
+      if (!trimmed) continue
+      if (!isValidTradeNoteId(trimmed)) {
+        throw new Error(`Invalid relatedTradeNotes ID: ${trimmed}`)
+      }
+      cleanedIds.push(trimmed)
+    }
+    relatedTradeNotes = Array.from(new Set(cleanedIds))
+  }
 
   return {
     sheetDate,
@@ -1116,7 +1431,7 @@ export function computeTradeSheetSummary(
   }
 }
 
-function parseLinkedTradeNotes(raw: unknown): LinkedTradeNote[] {
+export function parseLinkedTradeNotes(raw: unknown): LinkedTradeNote[] {
   if (!Array.isArray(raw)) return []
   const notes: LinkedTradeNote[] = []
   for (const item of raw) {

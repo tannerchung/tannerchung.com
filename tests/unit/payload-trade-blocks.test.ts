@@ -7,6 +7,7 @@ import {
 } from '@/blocks/trade-desk'
 import { DEFAULT_IC_SEATS } from '@/globals/TradeDeskSettings'
 import { TradeSheets } from '@/collections/TradeSheets'
+import { TradeNotes } from '@/collections/Content'
 
 describe('Payload Trade Desk Blocks & Citation Security', () => {
   it('registers all 6 briefing blocks and 2 lexical research blocks', () => {
@@ -62,7 +63,16 @@ describe('Payload Trade Desk Blocks & Citation Security', () => {
       'https://192.168.1.10/router',
       'https://169.254.169.254/latest/meta-data',
       'https://172.16.4.2/private',
+      'https://100.64.0.1/cgnat',
+      'https://100.127.255.254/tailscale-cgnat',
+      'https://mybox.tailnet.ts.net/api',
+      'https://[::]/unspecified',
       'https://[::1]/loopback',
+      'https://[::ffff:127.0.0.1]/mapped-loopback',
+      'https://[::ffff:10.0.0.1]/mapped-private',
+      'https://[::ffff:169.254.169.254]/mapped-imds',
+      'https://[::ffff:100.64.0.1]/mapped-cgnat',
+      'https://[::ffff:7f00:1]/mapped-hex-loopback',
       'https://[fe80::1]/link-local',
       'https://[fc00::1]/ula',
       'https://mail.google.com/mail/u/0/#inbox/123',
@@ -106,5 +116,22 @@ describe('Payload Trade Desk Blocks & Citation Security', () => {
       },
     } as never)
     expect(progress).toBe('1 / 3 staged')
+  })
+
+  it('enforces admin-only readVersions RBAC, drafts, and reverse join field on TradeNotes', () => {
+    const readVersions = TradeNotes.access?.readVersions
+    expect(readVersions).toBeTypeOf('function')
+    expect(readVersions?.({ req: { user: { role: 'admin' } } } as never)).toBe(true)
+    expect(readVersions?.({ req: { user: { role: 'viewer' } } } as never)).toBe(false)
+    expect(readVersions?.({ req: { user: null } } as never)).toBe(false)
+
+    expect(TradeNotes.versions).toEqual({ drafts: true })
+    const joinField = TradeNotes.fields.find(
+      (f) => 'name' in f && f.name === 'referencedInSheets',
+    )
+    expect(joinField).toBeDefined()
+    expect(joinField && 'type' in joinField && joinField.type).toBe('join')
+    expect(joinField && 'collection' in joinField && joinField.collection).toBe('trade-sheets')
+    expect(joinField && 'on' in joinField && joinField.on).toBe('relatedTradeNotes')
   })
 })

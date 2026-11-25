@@ -144,11 +144,62 @@ export async function POST(req: Request) {
     }
     const mergedNoteIds = Array.from(noteIdSet)
 
-    const updated = await payload.update({
+    try {
+      const updated = await payload.update({
+        collection: 'trade-sheets',
+        id: prev.id,
+        overrideAccess: true,
+        data: {
+          title: cleaned.title,
+          subtitle: cleaned.subtitle,
+          alertBanner: cleaned.alertBanner,
+          sourceMode: cleaned.sourceMode,
+          kpisJson: cleaned.kpisJson,
+          strategyJson: cleaned.strategyJson,
+          ticketsJson: cleaned.ticketsJson,
+          briefingBlocks: mergedBlocks as never,
+          citations: mergedCitations as never,
+          relatedTradeNotes: mergedNoteIds as never,
+          checkedRowIds: preservedChecks,
+          quotesRefreshedAt:
+            effectiveQuotesRefreshedAt ??
+            (typeof prev.quotesRefreshedAt === 'string' ? prev.quotesRefreshedAt : null),
+        },
+      })
+
+      return NextResponse.json({
+        ok: true,
+        action: 'updated',
+        id: updated.id,
+        sheetDate: updated.sheetDate,
+        briefingBlockCount: mergedBlocks.length,
+        citationCount: mergedCitations.length,
+        linkedTradeNoteCount: mergedNoteIds.length,
+        url: `https://trade.tannerchung.com/${updated.sheetDate}`,
+      })
+    } catch (err) {
+      const pgCode =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: unknown }).code)
+          : ''
+      if (pgCode === '22P02' || pgCode === '23503') {
+        return NextResponse.json(
+          { ok: false, error: 'Invalid or non-existent relatedTradeNotes reference ID.' },
+          { status: 400 },
+        )
+      }
+      throw err
+    }
+  }
+
+  const relatedTradeNotes = Array.from(noteIdSet)
+  const sanitizedCreateBlocks = mergeIngestBriefingBlocks([], cleaned.compiledBlocks)
+  try {
+    const created = await payload.create({
       collection: 'trade-sheets',
-      id: prev.id,
       overrideAccess: true,
       data: {
+        sheetDate: cleaned.sheetDate,
         title: cleaned.title,
         subtitle: cleaned.subtitle,
         alertBanner: cleaned.alertBanner,
@@ -156,57 +207,41 @@ export async function POST(req: Request) {
         kpisJson: cleaned.kpisJson,
         strategyJson: cleaned.strategyJson,
         ticketsJson: cleaned.ticketsJson,
-        briefingBlocks: mergedBlocks as never,
-        citations: mergedCitations as never,
-        relatedTradeNotes: mergedNoteIds as never,
-        checkedRowIds: preservedChecks,
-        quotesRefreshedAt:
-          effectiveQuotesRefreshedAt ??
-          (typeof prev.quotesRefreshedAt === 'string' ? prev.quotesRefreshedAt : null),
+        briefingBlocks: sanitizedCreateBlocks as never,
+        citations: cleaned.compiledCitations as never,
+        relatedTradeNotes: relatedTradeNotes as never,
+        checkedRowIds: [],
+        quotesRefreshedAt: effectiveQuotesRefreshedAt,
       },
     })
 
     return NextResponse.json({
       ok: true,
-      action: 'updated',
-      id: updated.id,
-      sheetDate: updated.sheetDate,
-      briefingBlockCount: mergedBlocks.length,
-      citationCount: mergedCitations.length,
-      linkedTradeNoteCount: mergedNoteIds.length,
-      url: `https://trade.tannerchung.com/${updated.sheetDate}`,
+      action: 'created',
+      id: created.id,
+      sheetDate: created.sheetDate,
+      briefingBlockCount: sanitizedCreateBlocks.length,
+      citationCount: cleaned.compiledCitations.length,
+      linkedTradeNoteCount: relatedTradeNotes.length,
+      url: `https://trade.tannerchung.com/${created.sheetDate}`,
     })
+  } catch (err) {
+    const pgCode =
+      err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: unknown }).code)
+        : ''
+    if (pgCode === '23505') {
+      return NextResponse.json(
+        { ok: false, error: 'Concurrent ingest conflict for this sheetDate. Retry the request.' },
+        { status: 409 },
+      )
+    }
+    if (pgCode === '22P02' || pgCode === '23503') {
+      return NextResponse.json(
+        { ok: false, error: 'Invalid or non-existent relatedTradeNotes reference ID.' },
+        { status: 400 },
+      )
+    }
+    throw err
   }
-
-  const relatedTradeNotes = Array.from(noteIdSet)
-  const created = await payload.create({
-    collection: 'trade-sheets',
-    overrideAccess: true,
-    data: {
-      sheetDate: cleaned.sheetDate,
-      title: cleaned.title,
-      subtitle: cleaned.subtitle,
-      alertBanner: cleaned.alertBanner,
-      sourceMode: cleaned.sourceMode,
-      kpisJson: cleaned.kpisJson,
-      strategyJson: cleaned.strategyJson,
-      ticketsJson: cleaned.ticketsJson,
-      briefingBlocks: cleaned.compiledBlocks as never,
-      citations: cleaned.compiledCitations as never,
-      relatedTradeNotes: relatedTradeNotes as never,
-      checkedRowIds: [],
-      quotesRefreshedAt: effectiveQuotesRefreshedAt,
-    },
-  })
-
-  return NextResponse.json({
-    ok: true,
-    action: 'created',
-    id: created.id,
-    sheetDate: created.sheetDate,
-    briefingBlockCount: cleaned.compiledBlocks.length,
-    citationCount: cleaned.compiledCitations.length,
-    linkedTradeNoteCount: relatedTradeNotes.length,
-    url: `https://trade.tannerchung.com/${created.sheetDate}`,
-  })
 }

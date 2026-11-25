@@ -4,7 +4,7 @@ import '../src/app/(frontend)/globals.css'
 
 const preview: Preview = {
   globalTypes: {
-    lumenDrop: {
+    drop: {
       description: 'Hallmark Lumen Foundry Drop',
       toolbar: {
         title: 'Lumen',
@@ -18,7 +18,7 @@ const preview: Preview = {
     },
   },
   initialGlobals: {
-    lumenDrop: 'night',
+    drop: 'night',
   },
   parameters: {
     nextjs: {
@@ -29,10 +29,13 @@ const preview: Preview = {
   },
   decorators: [
     (Story, context) => {
-      const drop = (context.globals.lumenDrop as 'night' | 'day') || 'night'
+      const rawDrop = context.globals.drop ?? context.globals.lumenDrop ?? 'night'
+      const drop: 'night' | 'day' = rawDrop === 'day' ? 'day' : 'night'
+
       useEffect(() => {
         document.documentElement.dataset.theme = 'lumen'
         document.documentElement.dataset.drop = drop
+        document.documentElement.style.colorScheme = drop === 'day' ? 'light' : 'dark'
       }, [drop])
 
       return React.createElement(
@@ -42,7 +45,10 @@ const preview: Preview = {
           'data-drop': drop,
           className: 'min-h-screen bg-[var(--color-paper)] text-[var(--color-ink)]',
           style: {
-            fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+            colorScheme: drop === 'day' ? 'light' : 'dark',
+            ['--font-serif' as string]: '"Instrument Serif", Georgia, serif',
+            ['--font-sans' as string]: '"Plus Jakarta Sans", system-ui, -apple-system, sans-serif',
+            ['--font-mono' as string]: '"JetBrains Mono", ui-monospace, SFMono-Regular, monospace',
           },
         },
         React.createElement(Story),

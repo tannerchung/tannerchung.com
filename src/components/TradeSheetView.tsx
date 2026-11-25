@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -79,6 +79,34 @@ function ticketBaseTicker(ticket: TradeTicketRow): string {
   )
 }
 
+export function textMentionsTicker(
+  text: string | null | undefined,
+  ticker: string,
+): boolean {
+  if (!text || !ticker) return false
+  const clean = ticker.trim().toUpperCase()
+  if (!clean) return false
+  const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Match exact uppercase symbol token boundaries so short tickers like V or T
+  // never match substrings or lowercase contractions like "don't" or "invest".
+  return new RegExp(`(^|[^A-Za-z0-9'])${escaped}(?=$|[^A-Za-z0-9'])`).test(text)
+}
+
+function stanceSortPriority(stance?: string | null): number {
+  switch (stance) {
+    case 'dissent':
+      return 0
+    case 'caution':
+      return 1
+    case 'abstain':
+      return 2
+    case 'approve':
+      return 3
+    default:
+      return 4
+  }
+}
+
 function actionBadgeStyle(action: string): React.CSSProperties {
   const upper = action.toUpperCase()
   if (upper.includes('SELL') || upper.includes('CANCEL')) {
@@ -127,12 +155,17 @@ export function TradeSheetView({
   )
   const [tickets, setTickets] = useState<TradeTicketRow[]>(sheet.tickets)
   const [checkedIds, setCheckedIds] = useState<string[]>(sheet.checkedRowIds)
-  const [savingRowId, setSavingRowId] = useState<string | null>(null)
+  const checkedIdsRef = useRef<string[]>(sheet.checkedRowIds)
+  const checkQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const pendingCheckOpsRef = useRef<number>(0)
+  const [pendingRowIds, setPendingRowIds] = useState<Record<string, boolean>>({})
   const [refreshingQuotes, setRefreshingQuotes] = useState(false)
   const [quotesRefreshedAt, setQuotesRefreshedAt] = useState<string | null>(
     sheet.quotesRefreshedAt ?? null,
   )
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [statusTone, setStatusTone] = useState<'info' | 'warn'>('info')
+  const [copiedField, setCopiedField] = useState<string | null>(null)
 
   // Filters
   const [actionFilter, setActionFilter] = useState<string>('ALL')
@@ -146,16 +179,30 @@ export function TradeSheetView({
   )
   const [expandedMobileIds, setExpandedMobileIds] = useState<Record<string, boolean>>({})
   const [highlightedCitation, setHighlightedCitation] = useState<number | null>(null)
+  const [citationReturnRoom, setCitationReturnRoom] = useState<'blotter' | 'briefing' | null>(
+    null,
+  )
 
   // Sync if sheet prop changes (e.g., Live Preview refresh or navigation)
   useEffect(() => {
     setTickets(sheet.tickets)
     setCheckedIds(sheet.checkedRowIds)
+    checkedIdsRef.current = sheet.checkedRowIds
     setQuotesRefreshedAt(sheet.quotesRefreshedAt ?? null)
     setSelectedTicketId((prev) =>
       prev && sheet.tickets.some((t) => t.id === prev) ? prev : (sheet.tickets[0]?.id ?? null),
     )
   }, [sheet])
+
+  // Deterministic scroll to highlighted citation after Room 03 commits
+  useEffect(() => {
+    if (activeRoom !== 'citations' || highlightedCitation === null) return
+    if (typeof document === 'undefined') return
+    const el = document.getElementById(`citation-${highlightedCitation}`)
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [activeRoom, highlightedCitation])
 
   const effectiveBlocks = useMemo<TradeBriefingBlock[]>(() => {
     if (Array.isArray(sheet.briefingBlocks) && sheet.briefingBlocks.length > 0) {
@@ -166,6 +213,27 @@ export function TradeSheetView({
     }
     return []
   }, [sheet.briefingBlocks, sheet.strategy])
+
+  const pinnedAnnotations = useMemo(
+    () =>
+      effectiveBlocks.filter(
+        (b): b is DeskAnnotationBlockData =>
+          b.blockType === 'deskAnnotation' && b.pinToTop !== false,
+      ),
+    [effectiveBlocks],
+  )
+
+  const tickerAnnotationsMap = useMemo(() => {
+    const map = new Map<string, DeskAnnotationBlockData[]>()
+    for (const b of effectiveBlocks) {
+      if (b.blockType !== 'deskAnnotation' || !b.ticker) continue
+      const key = b.ticker.trim().toUpperCase()
+      const list = map.get(key) ?? []
+      list.push(b)
+      map.set(key, list)
+    }
+    return map
+  }, [effectiveBlocks])
 
   const citations = sheet.citations ?? []
   const relatedNotes = sheet.relatedTradeNotes ?? []
@@ -234,17 +302,40 @@ export function TradeSheetView({
 
   const handleSelectCitation = useCallback(
     (index: number) => {
+      if (activeRoom === 'blotter' || activeRoom === 'briefing') {
+        setCitationReturnRoom(activeRoom)
+      }
       setHighlightedCitation(index)
       switchRoom('citations')
-      if (typeof window !== 'undefined') {
-        window.requestAnimationFrame(() => {
-          const el = document.getElementById(`citation-${index}`)
-          el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        })
-      }
     },
-    [switchRoom],
+    [activeRoom, switchRoom],
   )
+
+  useEffect(() => {
+    if (activeRoom !== 'citations' || highlightedCitation === null) return
+    if (typeof document === 'undefined') return
+    const el = document.getElementById(`citation-${highlightedCitation}`)
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [activeRoom, highlightedCitation])
+
+  const handleCopyText = useCallback(async (key: string, value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(trimmed)
+      }
+      setCopiedField(key)
+      window.setTimeout(() => {
+        setCopiedField((curr) => (curr === key ? null : curr))
+      }, 1600)
+    } catch {
+      setStatusTone('warn')
+      setStatusMessage('Clipboard copy unavailable in this browser context.')
+    }
+  }, [])
 
   const handleSelectTickerFromBriefing = useCallback(
     (ticker: string) => {
@@ -294,38 +385,61 @@ export function TradeSheetView({
   }, [activeRoom, filteredTickets.length, wave1Tickets, wave2Tickets, selectedTicket])
 
   const handleToggleChecked = useCallback(
-    async (rowId: string) => {
-      const prev = checkedIds
-      const isChecked = prev.includes(rowId)
-      const next = isChecked ? prev.filter((id) => id !== rowId) : [...prev, rowId]
-      setCheckedIds(next)
-      setSavingRowId(rowId)
+    (rowId: string) => {
+      const currentlyChecked = checkedIdsRef.current.includes(rowId)
+      const nextChecked = !currentlyChecked
+      const optimisticNext = nextChecked
+        ? [...checkedIdsRef.current, rowId]
+        : checkedIdsRef.current.filter((id) => id !== rowId)
+
+      checkedIdsRef.current = optimisticNext
+      setCheckedIds(optimisticNext)
+      pendingCheckOpsRef.current += 1
+      setPendingRowIds((prev) => ({ ...prev, [rowId]: true }))
       setStatusMessage(null)
 
-      try {
-        const res = await fetch(
-          `/api/trade-sheets/${encodeURIComponent(sheet.sheetDate)}/checks`,
-          {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ checkedRowIds: next }),
-          },
-        )
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
+      checkQueueRef.current = checkQueueRef.current.then(async () => {
+        try {
+          const res = await fetch(
+            `/api/trade-sheets/${encodeURIComponent(sheet.sheetDate)}/checks`,
+            {
+              method: 'PATCH',
+              redirect: 'manual',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rowId, checked: nextChecked }),
+            },
+          )
+          if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) {
+            window.location.reload()
+            return
+          }
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`)
+          }
+          const json = (await res.json()) as { checkedRowIds?: string[] }
+          if (pendingCheckOpsRef.current <= 1 && Array.isArray(json.checkedRowIds)) {
+            checkedIdsRef.current = json.checkedRowIds
+            setCheckedIds(json.checkedRowIds)
+          }
+        } catch {
+          const rolledBack = nextChecked
+            ? checkedIdsRef.current.filter((id) => id !== rowId)
+            : Array.from(new Set([...checkedIdsRef.current, rowId]))
+          checkedIdsRef.current = rolledBack
+          setCheckedIds(rolledBack)
+          setStatusTone('warn')
+          setStatusMessage('Failed to save execution checkbox state. Reverted.')
+        } finally {
+          pendingCheckOpsRef.current = Math.max(0, pendingCheckOpsRef.current - 1)
+          setPendingRowIds((prev) => {
+            const copy = { ...prev }
+            delete copy[rowId]
+            return copy
+          })
         }
-        const json = (await res.json()) as { checkedRowIds?: string[] }
-        if (Array.isArray(json.checkedRowIds)) {
-          setCheckedIds(json.checkedRowIds)
-        }
-      } catch {
-        setCheckedIds(prev)
-        setStatusMessage('Failed to save execution checkbox state. Reverted.')
-      } finally {
-        setSavingRowId(null)
-      }
+      })
     },
-    [checkedIds, sheet.sheetDate],
+    [sheet.sheetDate],
   )
 
   const handleRefreshQuotes = useCallback(async () => {
@@ -334,24 +448,53 @@ export function TradeSheetView({
     try {
       const res = await fetch(
         `/api/trade-sheets/${encodeURIComponent(sheet.sheetDate)}/refresh-quotes`,
-        { method: 'POST' },
+        { method: 'POST', redirect: 'manual' },
       )
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
+      if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) {
+        window.location.reload()
+        return
       }
-      const json = (await res.json()) as {
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        refreshedCount?: number
+        requestedCount?: number
+        failedTickers?: string[]
         ticketsJson?: TradeTicketRow[]
-        quotesRefreshedAt?: string
+        quotesRefreshedAt?: string | null
       }
+
+      if (
+        !res.ok ||
+        json.ok === false ||
+        ((json.requestedCount ?? 0) > 0 && (json.refreshedCount ?? 0) === 0)
+      ) {
+        setStatusTone('warn')
+        setStatusMessage(
+          json.error ||
+            'Quote refresh returned 0 live prices. Previous quotes and timestamp preserved.',
+        )
+        return
+      }
+
       if (Array.isArray(json.ticketsJson)) {
         setTickets(json.ticketsJson)
       }
       if (json.quotesRefreshedAt) {
         setQuotesRefreshedAt(json.quotesRefreshedAt)
       }
-      setStatusMessage('Live market quotes refreshed and limits re-anchored.')
+      if (Array.isArray(json.failedTickers) && json.failedTickers.length > 0) {
+        setStatusTone('warn')
+        setStatusMessage(
+          `Refreshed ${json.refreshedCount ?? 0}/${json.requestedCount ?? 0} live quotes. Unavailable: ${json.failedTickers.join(', ')}.`,
+        )
+      } else {
+        setStatusTone('info')
+        setStatusMessage('Live market quotes refreshed and limits re-anchored.')
+      }
     } catch {
-      setStatusMessage('Quote refresh unavailable right now.')
+      setStatusTone('warn')
+      setStatusMessage('Quote refresh unavailable right now. Previous quotes preserved.')
     } finally {
       setRefreshingQuotes(false)
     }
@@ -381,17 +524,38 @@ export function TradeSheetView({
       const debateBlocks = effectiveBlocks.filter(
         (b): b is PanelDebatesBlockData => b.blockType === 'panelDebates',
       )
-      const matchingSeats = debateBlocks.flatMap((d) =>
-        (d.seats ?? [])
-          .filter(
-            (s) =>
-              s.thesis.toUpperCase().includes(base) ||
-              (s.objection && s.objection.toUpperCase().includes(base)) ||
-              d.topic.toUpperCase().includes(base),
-          )
-          .map((s) => ({ ...s, topic: d.topic })),
+      const matchingSeats = debateBlocks
+        .flatMap((d) =>
+          (d.seats ?? [])
+            .filter(
+              (s) =>
+                textMentionsTicker(s.thesis, base) ||
+                textMentionsTicker(s.objection, base) ||
+                textMentionsTicker(d.topic, base),
+            )
+            .map((s) => ({
+              ...s,
+              topic: d.topic,
+              strongestUnresolvedObjection: d.strongestUnresolvedObjection ?? null,
+            })),
+        )
+        .sort((a, b) => stanceSortPriority(a.stance) - stanceSortPriority(b.stance))
+      const matchingDebates = debateBlocks.filter(
+        (d) =>
+          textMentionsTicker(d.topic, base) ||
+          textMentionsTicker(d.strongestUnresolvedObjection, base) ||
+          (d.seats ?? []).some(
+            (s) => textMentionsTicker(s.thesis, base) || textMentionsTicker(s.objection, base),
+          ),
       )
-      const primaryDebate = debateBlocks[0] ?? null
+      const primaryDebate = matchingDebates[0] ?? debateBlocks[0] ?? null
+      const unresolvedObjections = Array.from(
+        new Set(
+          (matchingDebates.length > 0 ? matchingDebates : primaryDebate ? [primaryDebate] : [])
+            .map((d) => d.strongestUnresolvedObjection)
+            .filter((o): o is string => Boolean(o && o.trim())),
+        ),
+      )
 
       const matchingCatalysts = effectiveBlocks
         .filter((b): b is NewsCatalystsBlockData => b.blockType === 'newsCatalysts')
@@ -412,6 +576,7 @@ export function TradeSheetView({
         tickerAnnotations,
         matchingSeats,
         primaryDebate,
+        unresolvedObjections,
         matchingCatalysts,
         matchingNotes,
         matchingCitations,
@@ -422,6 +587,10 @@ export function TradeSheetView({
 
   const renderInspectorBody = (ticket: TradeTicketRow, isMobileDrawer = false) => {
     const ctx = getTicketContext(ticket)
+    const visibleSeats = ctx.matchingSeats.filter(
+      (s, idx) => idx < 3 || s.stance === 'dissent' || s.stance === 'caution',
+    )
+    const orderClipboardText = `${ticket.symbol} | ${ticket.action} ${ticket.qty} @ ${ticket.limitPrice} (${ticket.custodian} ${ticket.account})`
 
     return (
       <div className={isMobileDrawer ? 'space-y-4 pt-3' : 'space-y-5'}>
@@ -429,9 +598,19 @@ export function TradeSheetView({
         <div className="border-b border-[var(--color-rule)] pb-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
             <div className="flex items-center gap-2">
-              <span className="font-mono-code text-[16px] font-semibold text-[var(--color-ink)]">
+              <button
+                type="button"
+                onClick={() => handleCopyText(`sym-${ticket.id}`, ticket.symbol)}
+                title="Copy symbol"
+                className="font-mono-code text-[16px] font-semibold text-[var(--color-ink)] hover:text-[var(--color-accent)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
+              >
                 {ticket.symbol}
-              </span>
+                {copiedField === `sym-${ticket.id}` && (
+                  <span className="ml-1.5 text-[10px] uppercase tracking-[0.08em] text-[var(--color-accent)]">
+                    Copied
+                  </span>
+                )}
+              </button>
               <span
                 className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono-code font-semibold uppercase tracking-[0.08em] border"
                 style={actionBadgeStyle(ticket.action)}
@@ -439,9 +618,18 @@ export function TradeSheetView({
                 {ticket.action}
               </span>
             </div>
-            <span className="font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
-              {ticket.custodian} · {ticket.account}
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleCopyText(`order-${ticket.id}`, orderClipboardText)}
+                className="px-1.5 py-0.5 border border-[var(--color-rule-2)] bg-[var(--color-paper-3)] font-mono-code text-[9.5px] uppercase tracking-[0.08em] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1"
+              >
+                {copiedField === `order-${ticket.id}` ? 'Copied ✓' : 'Copy Order'}
+              </button>
+              <span className="font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
+                {ticket.custodian} · {ticket.account}
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2 font-mono-code tabular-nums text-[11.5px] mt-2.5">
@@ -449,13 +637,27 @@ export function TradeSheetView({
               <div className="text-[9.5px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
                 Limit Price
               </div>
-              <div className="text-[var(--color-ink)] font-semibold">{ticket.limitPrice || '—'}</div>
+              <button
+                type="button"
+                onClick={() => handleCopyText(`limit-${ticket.id}`, ticket.limitPrice || '')}
+                title="Copy limit price"
+                className="text-left text-[var(--color-ink)] font-semibold hover:text-[var(--color-accent)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1"
+              >
+                {copiedField === `limit-${ticket.id}` ? 'Copied ✓' : ticket.limitPrice || '—'}
+              </button>
             </div>
             <div>
               <div className="text-[9.5px] uppercase tracking-[0.1em] text-[var(--color-subtle)]">
                 Qty / Est. Value
               </div>
-              <div className="text-[var(--color-ink)] font-semibold">{ticket.qty || '—'}</div>
+              <button
+                type="button"
+                onClick={() => handleCopyText(`qty-${ticket.id}`, ticket.qty || '')}
+                title="Copy quantity"
+                className="text-left text-[var(--color-ink)] font-semibold hover:text-[var(--color-accent)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1"
+              >
+                {copiedField === `qty-${ticket.id}` ? 'Copied ✓' : ticket.qty || '—'}
+              </button>
               <div className="text-[10px] text-[var(--color-subtle)]">{ticket.estValue || '—'}</div>
             </div>
             <div>
@@ -507,11 +709,11 @@ export function TradeSheetView({
           )}
         </div>
 
-        {/* Linked TradeNote Research Thesis */}
+        {/* Linked Research Thesis */}
         {ctx.matchingNotes.length > 0 && (
           <div className="space-y-3">
             <div className="font-mono-code text-[10px] uppercase tracking-[0.12em] text-[var(--color-subtle)]">
-              Linked TradeNote Thesis ({ctx.matchingNotes.length})
+              Linked Research Thesis ({ctx.matchingNotes.length})
             </div>
             {ctx.matchingNotes.map((note) => (
               <TradeNoteThesisCard key={note.id} note={note} compact />
@@ -520,7 +722,7 @@ export function TradeSheetView({
         )}
 
         {/* IC Panel Context */}
-        {(ctx.matchingSeats.length > 0 || ctx.primaryDebate) && (
+        {(visibleSeats.length > 0 || ctx.primaryDebate) && (
           <div className="border-t border-[var(--color-rule)] pt-4">
             <div className="flex items-center justify-between gap-2 mb-2">
               <span className="font-mono-code text-[10px] uppercase tracking-[0.12em] text-[var(--color-subtle)]">
@@ -529,31 +731,69 @@ export function TradeSheetView({
               <button
                 type="button"
                 onClick={() => switchRoom('briefing')}
-                className="font-mono-code text-[10px] uppercase tracking-[0.08em] text-[var(--color-accent)] hover:underline cursor-pointer"
+                className="font-mono-code text-[10px] uppercase tracking-[0.08em] text-[var(--color-accent)] hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
               >
                 Full Briefing →
               </button>
             </div>
-            {ctx.matchingSeats.length > 0 ? (
+            {ctx.unresolvedObjections.length > 0 && (
+              <div
+                className="mb-3 border border-[var(--color-rule)] border-l-2 bg-[var(--color-paper-3)] px-3 py-2 text-[12px] leading-[1.5] text-[var(--color-ink)]"
+                style={{ borderLeftColor: 'var(--color-accent-2)' }}
+              >
+                <div className="font-mono-code text-[9.5px] font-semibold uppercase tracking-[0.1em] text-[var(--color-accent-2)] mb-0.5">
+                  Strongest Unresolved Objection
+                </div>
+                {ctx.unresolvedObjections[0]}
+              </div>
+            )}
+            {visibleSeats.length > 0 ? (
               <div className="space-y-2.5">
-                {ctx.matchingSeats.slice(0, 3).map((seat, idx) => (
-                  <div
-                    key={seat.id ?? `${seat.seatKey}-${idx}`}
-                    className="border-l-2 border-[var(--color-rule-2)] pl-3 py-0.5"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                      <span className="text-[12px] font-semibold text-[var(--color-ink)]">
-                        {seat.seatName}
-                      </span>
-                      <span className="font-mono-code text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)]">
-                        {seat.stance}
-                      </span>
+                {visibleSeats.map((seat, idx) => {
+                  const isDissent = seat.stance === 'dissent'
+                  return (
+                    <div
+                      key={seat.id ?? `${seat.seatKey}-${idx}`}
+                      className="border-l-2 pl-3 py-0.5"
+                      style={{
+                        borderLeftColor: isDissent
+                          ? 'var(--color-accent-2)'
+                          : seat.stance === 'caution'
+                            ? 'var(--color-warn)'
+                            : 'var(--color-rule-2)',
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <span className="text-[12px] font-semibold text-[var(--color-ink)]">
+                          {seat.seatName}
+                        </span>
+                        <span
+                          className="font-mono-code text-[10px] uppercase tracking-[0.08em]"
+                          style={{
+                            color: isDissent
+                              ? 'var(--color-accent-2)'
+                              : seat.stance === 'caution'
+                                ? 'var(--color-warn)'
+                                : 'var(--color-muted)',
+                          }}
+                        >
+                          {seat.stance}
+                        </span>
+                      </div>
+                      <p className="text-[12px] leading-[1.5] text-[var(--color-muted)]">
+                        {seat.thesis}
+                      </p>
+                      {seat.objection && (
+                        <p className="mt-1 text-[11.5px] leading-[1.5] text-[var(--color-ink)]">
+                          <span className="font-mono-code text-[9.5px] uppercase tracking-[0.08em] text-[var(--color-accent-2)] mr-1.5">
+                            Objection
+                          </span>
+                          {seat.objection}
+                        </p>
+                      )}
                     </div>
-                    <p className="text-[12px] leading-[1.5] text-[var(--color-muted)]">
-                      {seat.thesis}
-                    </p>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ) : ctx.primaryDebate ? (
               <div className="text-[12.5px] leading-[1.55] text-[var(--color-muted)]">
@@ -615,6 +855,13 @@ export function TradeSheetView({
     const isChecked = checkedSet.has(ticket.id)
     const isSelected = selectedTicket?.id === ticket.id
     const isMobileExpanded = Boolean(expandedMobileIds[ticket.id])
+    const base = ticketBaseTicker(ticket)
+    const exact = ticket.symbol.trim().toUpperCase()
+    const rowOverrides = [
+      ...(tickerAnnotationsMap.get(exact) ?? []),
+      ...(base !== exact ? (tickerAnnotationsMap.get(base) ?? []) : []),
+    ]
+    const primaryOverride = rowOverrides[0] ?? null
 
     return (
       <div
@@ -637,10 +884,10 @@ export function TradeSheetView({
             <input
               type="checkbox"
               aria-label={`Mark ${ticket.symbol} ${ticket.action} as staged`}
+              aria-busy={Boolean(pendingRowIds[ticket.id])}
               checked={isChecked}
-              disabled={savingRowId === ticket.id}
               onChange={() => handleToggleChecked(ticket.id)}
-              className="h-4 w-4 accent-[var(--color-accent)] cursor-pointer"
+              className="h-4 w-4 accent-[var(--color-accent)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
             />
           </div>
 
@@ -650,7 +897,7 @@ export function TradeSheetView({
               <button
                 type="button"
                 onClick={() => setSelectedTicketId(ticket.id)}
-                className="text-left min-w-0 flex-1 cursor-pointer focus:outline-none"
+                className="text-left min-w-0 flex-1 cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span
@@ -668,6 +915,38 @@ export function TradeSheetView({
                   >
                     {ticket.action}
                   </span>
+                  {primaryOverride && (
+                    <span
+                      title={primaryOverride.heading}
+                      className="inline-flex items-center px-1.5 py-0.5 text-[9.5px] font-mono-code font-semibold uppercase tracking-[0.08em] border"
+                      style={{
+                        color:
+                          primaryOverride.scope === 'risk_override'
+                            ? 'var(--color-accent-2)'
+                            : primaryOverride.scope === 'ticker'
+                              ? 'var(--color-warn)'
+                              : 'var(--color-accent)',
+                        borderColor:
+                          primaryOverride.scope === 'risk_override'
+                            ? 'color-mix(in oklch, var(--color-accent-2) 45%, transparent)'
+                            : primaryOverride.scope === 'ticker'
+                              ? 'color-mix(in oklch, var(--color-warn) 45%, transparent)'
+                              : 'color-mix(in oklch, var(--color-accent) 45%, transparent)',
+                        backgroundColor:
+                          primaryOverride.scope === 'risk_override'
+                            ? 'color-mix(in oklch, var(--color-accent-2) 10%, transparent)'
+                            : primaryOverride.scope === 'ticker'
+                              ? 'color-mix(in oklch, var(--color-warn) 10%, transparent)'
+                              : 'color-mix(in oklch, var(--color-accent) 10%, transparent)',
+                      }}
+                    >
+                      {primaryOverride.scope === 'risk_override'
+                        ? 'Override'
+                        : primaryOverride.scope === 'ticker'
+                          ? 'Ticker Override'
+                          : 'Desk Note'}
+                    </span>
+                  )}
                   <span className="font-mono-code text-[11px] text-[var(--color-muted)]">
                     {ticket.custodian} · {ticket.account}
                   </span>
@@ -704,7 +983,7 @@ export function TradeSheetView({
                     [ticket.id]: !prev[ticket.id],
                   }))
                 }}
-                className="lg:hidden shrink-0 px-2 py-1 font-mono-code text-[10px] uppercase tracking-[0.08em] border border-[var(--color-rule-2)] bg-[var(--color-paper-2)] text-[var(--color-ink)] cursor-pointer"
+                className="lg:hidden shrink-0 px-2 py-1 font-mono-code text-[10px] uppercase tracking-[0.08em] border border-[var(--color-rule-2)] bg-[var(--color-paper-2)] text-[var(--color-ink)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
               >
                 {isMobileExpanded ? 'Hide IC' : 'Why & IC'}
               </button>
@@ -753,7 +1032,7 @@ export function TradeSheetView({
                       router.push(`/trade/${e.target.value}`)
                     }
                   }}
-                  className="border border-[var(--color-rule-2)] bg-[var(--color-paper-2)] px-2 py-1 font-mono-code tabular-nums text-[11px] text-[var(--color-ink)]"
+                  className="border border-[var(--color-rule-2)] bg-[var(--color-paper-2)] px-2 py-1 font-mono-code tabular-nums text-base sm:text-[11px] text-[var(--color-ink)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1"
                 >
                   {history.map((h) => (
                     <option key={h.sheetDate} value={h.sheetDate}>
@@ -769,9 +1048,9 @@ export function TradeSheetView({
                   ? `/admin/collections/trade-sheets/${sheet.id}`
                   : '/admin/collections/trade-sheets'
               }
-              className="px-2.5 py-1 border border-[var(--color-rule-2)] bg-[var(--color-paper-2)] font-mono-code text-[10.5px] uppercase tracking-[0.08em] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+              className="px-2.5 py-1 border border-[var(--color-rule-2)] bg-[var(--color-paper-2)] font-mono-code text-[10.5px] uppercase tracking-[0.08em] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2 transition-colors"
             >
-              Payload Studio
+              Admin Desk
             </Link>
           </div>
         </div>
@@ -779,7 +1058,7 @@ export function TradeSheetView({
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div className="min-w-0">
             <h1
-              className="font-display text-[30px] sm:text-[38px] leading-[1.12] tracking-[-0.02em] text-[var(--color-ink)]"
+              className="font-serif-display text-[30px] sm:text-[38px] leading-[1.12] tracking-[-0.02em] text-[var(--color-ink)]"
               style={{ fontStyle: 'normal' }}
             >
               {sheet.title}
@@ -869,7 +1148,12 @@ export function TradeSheetView({
       {statusMessage && (
         <div
           role="status"
-          className="mb-4 px-3 py-2 border border-[var(--color-rule)] bg-[var(--color-paper-3)] font-mono-code text-[11.5px] text-[var(--color-muted)]"
+          className="mb-4 px-3 py-2 border border-[var(--color-rule)] bg-[var(--color-paper-3)] font-mono-code text-[11.5px]"
+          style={{
+            borderLeftWidth: statusTone === 'warn' ? '2px' : undefined,
+            borderLeftColor: statusTone === 'warn' ? 'var(--color-warn)' : undefined,
+            color: statusTone === 'warn' ? 'var(--color-ink)' : 'var(--color-muted)',
+          }}
         >
           {statusMessage}
         </div>
@@ -877,9 +1161,9 @@ export function TradeSheetView({
 
       {/* KPI Strip */}
       {sheet.kpis.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 border border-[var(--color-rule)] bg-[var(--color-paper-2)] divide-y lg:divide-y-0 lg:divide-x divide-[var(--color-rule)] mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-[var(--color-rule)] border border-[var(--color-rule)] mb-6">
           {sheet.kpis.map((kpi, idx) => (
-            <div key={`${kpi.label}-${idx}`} className="px-4 py-3">
+            <div key={`${kpi.label}-${idx}`} className="bg-[var(--color-paper-2)] px-4 py-3">
               <div className="font-mono-code text-[10px] uppercase tracking-[0.12em] text-[var(--color-subtle)]">
                 {kpi.label}
               </div>
@@ -900,7 +1184,7 @@ export function TradeSheetView({
       <nav
         role="tablist"
         aria-label="Trade Desk Rooms"
-        className="flex flex-wrap items-center gap-6 border-b border-[var(--color-rule)] mb-6"
+        className="flex flex-nowrap overflow-x-auto items-center gap-4 sm:gap-6 border-b border-[var(--color-rule)] mb-6 -mx-4 px-4 sm:mx-0 sm:px-0"
       >
         {(
           [
@@ -929,7 +1213,7 @@ export function TradeSheetView({
               type="button"
               aria-selected={active}
               onClick={() => switchRoom(tab.id)}
-              className="relative pb-3 pt-1 font-mono-code text-[11.5px] uppercase tracking-[0.1em] transition-colors cursor-pointer flex items-center gap-2"
+              className="relative shrink-0 whitespace-nowrap pb-3 pt-1 font-mono-code text-[11.5px] uppercase tracking-[0.1em] transition-colors cursor-pointer flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
               style={{
                 color: active ? 'var(--color-ink)' : 'var(--color-muted)',
                 fontWeight: active ? 600 : 400,
@@ -956,6 +1240,15 @@ export function TradeSheetView({
       {/* ROOM 01: EXECUTION BLOTTER + CONTEXTUAL IC INSPECTOR */}
       {activeRoom === 'blotter' && (
         <div role="tabpanel" aria-label="Execution Blotter">
+          {/* Pinned Human Desk Overrides / Annotations */}
+          {pinnedAnnotations.length > 0 && (
+            <div className="mb-5 space-y-3" aria-label="Pinned Desk Annotations">
+              {pinnedAnnotations.map((ann, idx) => (
+                <DeskAnnotationBlockView key={ann.id ?? `pinned-${idx}`} block={ann} />
+              ))}
+            </div>
+          )}
+
           {/* Blotter Filters */}
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-[var(--color-rule)]">
             <div className="flex flex-wrap items-center gap-2">
@@ -966,7 +1259,7 @@ export function TradeSheetView({
                     key={act}
                     type="button"
                     onClick={() => setActionFilter(act)}
-                    className="px-2.5 py-1 font-mono-code text-[10.5px] uppercase tracking-[0.08em] border transition-colors cursor-pointer"
+                    className="px-2.5 py-1 font-mono-code text-[10.5px] uppercase tracking-[0.08em] border transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1"
                     style={
                       active
                         ? {
@@ -990,7 +1283,7 @@ export function TradeSheetView({
                 aria-label="Filter by wave"
                 value={waveFilter}
                 onChange={(e) => setWaveFilter(e.target.value as 'ALL' | 'WAVE1' | 'WAVE2')}
-                className="border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2 py-1 font-mono-code text-[10.5px] text-[var(--color-ink)]"
+                className="border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2 py-1 font-mono-code text-base sm:text-[10.5px] text-[var(--color-ink)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1"
               >
                 <option value="ALL">All Waves</option>
                 <option value="WAVE1">Wave 1</option>
@@ -1002,7 +1295,7 @@ export function TradeSheetView({
                   aria-label="Filter by custodian"
                   value={custodianFilter}
                   onChange={(e) => setCustodianFilter(e.target.value)}
-                  className="border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2 py-1 font-mono-code text-[10.5px] text-[var(--color-ink)]"
+                  className="border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2 py-1 font-mono-code text-base sm:text-[10.5px] text-[var(--color-ink)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1"
                 >
                   <option value="ALL">All Custodians</option>
                   {custodians.map((c) => (
@@ -1095,7 +1388,7 @@ export function TradeSheetView({
             {/* Sticky Contextual IC & Citation Inspector (Desktop >= 1024px) */}
             <aside
               aria-label="Contextual IC and Citation Inspector"
-              className="hidden lg:block sticky top-6 border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-5 min-w-0"
+              className="hidden lg:block sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-5 min-w-0"
             >
               <div className="font-mono-code text-[10px] uppercase tracking-[0.14em] text-[var(--color-subtle)] mb-3">
                 Contextual IC &amp; Citation Inspector
@@ -1104,7 +1397,7 @@ export function TradeSheetView({
                 renderInspectorBody(selectedTicket, false)
               ) : (
                 <p className="text-[13px] text-[var(--color-muted)]">
-                  Select any ticket row to inspect its IC rationale, linked TradeNote thesis, and corroborated citations.
+                  Select any ticket row to inspect its IC rationale, linked thesis note, and corroborated citations.
                 </p>
               )}
             </aside>
@@ -1124,11 +1417,14 @@ export function TradeSheetView({
               activeTicker={selectedTicket ? ticketBaseTicker(selectedTicket) : null}
               onSelectTicker={handleSelectTickerFromBriefing}
             />
-          ) : (
+          ) : !(
+              sheet.strategy &&
+              (sheet.strategy.facts.length > 0 || sheet.strategy.expectedResults.length > 0)
+            ) ? (
             <div className="border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-5 py-8 text-[14px] text-[var(--color-muted)]">
-              No structured IC briefing blocks have been published for this session yet. Add blocks in Payload Studio or re-run daily ingest.
+              No structured IC briefing blocks have been published for this session yet. Edit in the Admin Desk or re-run daily ingest.
             </div>
-          )}
+          ) : null}
 
           {/* Legacy Strategy Facts & Expected Results Tables (if present) */}
           {sheet.strategy &&
@@ -1184,15 +1480,15 @@ export function TradeSheetView({
               </section>
             )}
 
-          {/* Linked TradeNotes Section */}
+          {/* Linked Thesis Notes Section */}
           {relatedNotes.length > 0 && (
             <section
-              aria-label="Linked Trade Notes"
+              aria-label="Linked Thesis Notes"
               className="border-t border-[var(--color-rule)] pt-7 mt-8 space-y-4"
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-mono-code text-[10px] uppercase tracking-[0.14em] text-[var(--color-subtle)]">
-                  06 · Linked Research Notes (TradeNotes)
+                  06 · Linked Thesis Notes
                 </span>
                 <span className="font-mono-code tabular-nums text-[11px] text-[var(--color-subtle)]">
                   {relatedNotes.length} {relatedNotes.length === 1 ? 'note' : 'notes'}
@@ -1222,6 +1518,18 @@ export function TradeSheetView({
             citations={citations}
             highlightedIndex={highlightedCitation}
             onClearHighlight={() => setHighlightedCitation(null)}
+            returnLabel={
+              citationReturnRoom === 'blotter'
+                ? 'Back to Blotter'
+                : citationReturnRoom === 'briefing'
+                  ? 'Back to IC Briefing'
+                  : null
+            }
+            onReturn={() => {
+              const dest = citationReturnRoom
+              setCitationReturnRoom(null)
+              if (dest) switchRoom(dest)
+            }}
           />
 
           <StandingGuardrailsView deskSettings={deskSettings} />

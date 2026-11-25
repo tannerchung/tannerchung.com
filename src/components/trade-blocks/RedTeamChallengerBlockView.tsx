@@ -71,7 +71,7 @@ export function RedTeamChallengerBlockView({
       </div>
 
       <h3
-        className="font-display text-[22px] leading-[1.2] text-[var(--color-ink)] mb-3"
+        className="font-serif-display text-[22px] leading-[1.2] text-[var(--color-ink)] mb-3"
         style={{ fontStyle: 'normal' }}
       >
         {block.challengerTitle || 'Autonomous Red-Team & Second-Level Blind Spots'}

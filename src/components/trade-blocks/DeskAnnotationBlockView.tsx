@@ -52,7 +52,7 @@ export function DeskAnnotationBlockView({
       </div>
 
       <h3
-        className="font-display text-[20px] leading-[1.2] text-[var(--color-ink)] mb-1.5"
+        className="font-serif-display text-[20px] leading-[1.2] text-[var(--color-ink)] mb-1.5"
         style={{ fontStyle: 'normal' }}
       >
         {block.heading}

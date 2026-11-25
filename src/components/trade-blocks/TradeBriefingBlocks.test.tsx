@@ -113,6 +113,22 @@ describe('Trade Briefing Block Presenters', () => {
     expect(screen.getByText('Unsafe JS Link')).toBeTruthy()
   })
 
+  it('renders Back to Blotter return pill in CitationsLedger and invokes onReturn', () => {
+    const onReturn = vi.fn()
+    render(
+      <CitationsLedger
+        citations={SAMPLE_CITATIONS}
+        highlightedIndex={1}
+        returnLabel="Back to Blotter"
+        onReturn={onReturn}
+      />,
+    )
+
+    const backBtn = screen.getByRole('button', { name: /Back to Blotter/i })
+    fireEvent.click(backBtn)
+    expect(onReturn).toHaveBeenCalledTimes(1)
+  })
+
   it('renders StandingGuardrailsView with IPS targets and 9 IC seats', () => {
     render(<StandingGuardrailsView deskSettings={SAMPLE_DESK_SETTINGS} />)
 

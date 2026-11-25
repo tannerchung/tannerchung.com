@@ -233,6 +233,110 @@ describe('Trade Sheets Briefing Compiler & Prose Scrubber', () => {
     expect(cleaned.compiledBlocks[0].blockType).toBe('executiveMandate')
     expect(extractSheetTickers(cleaned.ticketsJson, cleaned.compiledBlocks)).toEqual(['NVDA'])
   })
+
+  it('sanitizes, scrubs, bounds raw briefingBlocks and strips deskAnnotation on ingest', () => {
+    const cleaned = sanitizeTradeSheetInput({
+      sheetDate: '2026-11-25',
+      title: 'Raw Blocks Ingest',
+      ticketsJson: [],
+      briefingBlocks: [
+        {
+          blockType: 'deskAnnotation',
+          author: 'Spoofed Bot',
+          heading: 'Injected Override',
+          body: 'Should be stripped on ingest',
+        },
+        {
+          blockType: 'executiveMandate',
+          posture: 'invalid_enum_value',
+          mandateHeadline: '🚀 Trim acct 1234567890 via https://digital.fidelity.com/acct',
+          summaryPoints: Array.from({ length: 30 }, (_, i) => ({
+            text: `Point ${i + 1} for acct 987654321`,
+          })),
+          holdOffNotes: [{ note: '🔥 Wait for FOMC' }],
+        },
+        {
+          blockType: 'moveRationales',
+          items: [
+            {
+              ticker: 'nvda',
+              action: 'sell',
+              conviction: 'not_valid',
+              rationale: 'Trim acct 4455667788 https://mail.google.com/mail/u/0/',
+            },
+          ],
+        },
+      ],
+    })
+
+    // deskAnnotation must be stripped on ingest
+    expect(cleaned.compiledBlocks.map((b) => b.blockType)).toEqual([
+      'executiveMandate',
+      'moveRationales',
+    ])
+
+    const mandate = cleaned.compiledBlocks[0]
+    expect(mandate.blockType).toBe('executiveMandate')
+    if (mandate.blockType === 'executiveMandate') {
+      expect(mandate.posture).toBe('balanced')
+      expect(mandate.mandateHeadline).not.toContain('🚀')
+      expect(mandate.mandateHeadline).not.toContain('1234567890')
+      expect(mandate.mandateHeadline).not.toContain('fidelity.com')
+      expect(mandate.mandateHeadline).toContain('[REDACTED-ACCT]')
+      // Bounded to MAX_MANDATE_LIST_ITEMS (20)
+      expect(mandate.summaryPoints).toHaveLength(20)
+      expect(mandate.summaryPoints?.[0]?.text).not.toContain('987654321')
+    }
+
+    // Also verifies executiveMandate mirrors into legacy strategyJson when omitted
+    expect(cleaned.strategyJson.headline).toContain('Trim acct [REDACTED-ACCT]')
+    expect(cleaned.strategyJson.summaryBullets).toHaveLength(20)
+    expect(cleaned.strategyJson.holdOffNotes).toEqual(['Wait for FOMC'])
+  })
+
+  it('mirrors briefing.executiveMandate into strategyJson when strategyJson is omitted', () => {
+    const cleaned = sanitizeTradeSheetInput({
+      sheetDate: '2026-11-25',
+      title: 'Structured Only Sheet',
+      ticketsJson: [],
+      briefing: {
+        executiveMandate: {
+          posture: 'defensive',
+          mandateHeadline: 'Defend $95k Treasury cash floor',
+          summaryPoints: ['Trim high-beta semis', 'Hold T-bill ladder'],
+          holdOffNotes: ['No new SMH until wash-sale window clears'],
+        },
+      },
+    })
+
+    expect(cleaned.strategyJson.headline).toBe('Defend $95k Treasury cash floor')
+    expect(cleaned.strategyJson.summaryBullets).toEqual([
+      'Trim high-beta semis',
+      'Hold T-bill ladder',
+    ])
+    expect(cleaned.strategyJson.holdOffNotes).toEqual([
+      'No new SMH until wash-sale window clears',
+    ])
+  })
+
+  it('validates relatedTradeNotes IDs and rejects malformed non-UUID/non-numeric strings', () => {
+    expect(() =>
+      sanitizeTradeSheetInput({
+        sheetDate: '2026-11-25',
+        title: 'Bad Related Notes',
+        ticketsJson: [],
+        relatedTradeNotes: ['not-a-valid-uuid!'],
+      }),
+    ).toThrow(/Invalid relatedTradeNotes ID/i)
+
+    const valid = sanitizeTradeSheetInput({
+      sheetDate: '2026-11-25',
+      title: 'Valid Related Notes',
+      ticketsJson: [],
+      relatedTradeNotes: ['550e8400-e29b-41d4-a716-446655440000', '42'],
+    })
+    expect(valid.relatedTradeNotes).toEqual(['550e8400-e29b-41d4-a716-446655440000', '42'])
+  })
 })
 
 describe('POST /api/trade-sheets/ingest route handler', () => {
@@ -355,5 +459,25 @@ describe('POST /api/trade-sheets/ingest route handler', () => {
     const blocks = updateData.briefingBlocks as Array<{ blockType: string; id?: string }>
     expect(blocks.map((b) => b.blockType)).toEqual(['deskAnnotation', 'executiveMandate'])
     expect(blocks[0].id).toBe('human-ann-1')
+  })
+
+  it('returns 400 when relatedTradeNotes contains a malformed ID', async () => {
+    const req = new Request('https://trade.tannerchung.com/api/trade-sheets/ingest', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-ingest-secret-minimum-16-chars',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sheetDate: '2026-11-25',
+        title: 'Bad Note ID',
+        ticketsJson: [],
+        relatedTradeNotes: ['invalid-pg-uuid-value'],
+      }),
+    })
+
+    const res = await ingestPost(req)
+    expect(res.status).toBe(400)
+    expect(mockPayload.find).not.toHaveBeenCalled()
   })
 })

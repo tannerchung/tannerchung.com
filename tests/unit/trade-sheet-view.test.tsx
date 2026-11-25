@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TradeSheetView } from '@/components/TradeSheetView'
 import {
   SAMPLE_CITATIONS,
@@ -105,16 +105,18 @@ describe('TradeSheetView Hybrid A+B Workbench', () => {
 
     const blotterTab = screen.getByRole('tab', { name: /01 · Execution Blotter/i })
     expect(blotterTab.getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByLabelText('Contextual IC and Citation Inspector')).toBeTruthy()
+    const inspector = screen.getByLabelText('Contextual IC and Citation Inspector')
+    expect(inspector).toBeTruthy()
+    expect(screen.getByLabelText('Pinned Desk Annotations')).toBeTruthy()
 
-    // Press 'j' to move selection from NVDA -> GOOG and verify linked TradeNote ValuationBand appears in inspector
+    // Press 'j' to move selection from NVDA -> GOOG and verify linked Research Thesis appears in inspector
     fireEvent.keyDown(window, { key: 'j' })
-    expect(screen.getByText(/Linked TradeNote Thesis/i)).toBeTruthy()
-    expect(screen.getByText(/Mandatory Exit/i)).toBeTruthy()
+    expect(within(inspector).getByText(/Linked Research Thesis/i)).toBeTruthy()
+    expect(within(inspector).getByText(/Mandatory Exit/i)).toBeTruthy()
 
     // Press 'k' to return to NVDA
     fireEvent.keyDown(window, { key: 'k' })
-    expect(screen.getByText(/Cap NVDA trim strictly at 15%/i)).toBeTruthy()
+    expect(within(inspector).getByText(/Cap NVDA trim strictly at 15%/i)).toBeTruthy()
   })
 
   it('maps both initialTab="strategy" and initialTab="briefing" to Room 02 IC Briefing', () => {

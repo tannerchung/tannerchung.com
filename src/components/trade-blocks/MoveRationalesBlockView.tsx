@@ -66,7 +66,7 @@ export function MoveRationalesBlockView({
 
       {block.sectionTitle && block.sectionTitle !== 'Ticket-by-Ticket Action Rationale' && (
         <h3
-          className="font-display text-[22px] leading-[1.2] text-[var(--color-ink)] mb-4"
+          className="font-serif-display text-[22px] leading-[1.2] text-[var(--color-ink)] mb-4"
           style={{ fontStyle: 'normal' }}
         >
           {block.sectionTitle}

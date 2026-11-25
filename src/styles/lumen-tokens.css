@@ -2,6 +2,7 @@
 
 :root,
 [data-theme="lumen"] {
+  color-scheme: dark;
   /* Drop 01 · Night Foundry (Canonical Emission) */
   --color-paper: oklch(13% 0.014 265);
   --color-paper-2: oklch(16.8% 0.016 265);
@@ -10,8 +11,8 @@
   --color-rule-2: oklch(33% 0.018 265);
   --color-ink: oklch(95.5% 0.006 262);
   --color-ink-2: oklch(84% 0.009 264);
-  --color-muted: oklch(67% 0.014 265);
-  --color-subtle: oklch(50% 0.014 265);
+  --color-muted: oklch(72% 0.014 265);
+  --color-subtle: oklch(62% 0.014 265);
 
   /* Molten Brass primary + Coral Chord verb-landmark */
   --color-accent: oklch(76% 0.165 55);
@@ -53,6 +54,7 @@
 }
 
 [data-theme="lumen"][data-drop="day"] {
+  color-scheme: light;
   /* Drop 02 · Day Foundry (Refraction) */
   --color-paper: oklch(97% 0.008 265);
   --color-paper-2: oklch(94.4% 0.010 265);
@@ -61,13 +63,13 @@
   --color-rule-2: oklch(75% 0.018 265);
   --color-ink: oklch(18% 0.016 265);
   --color-ink-2: oklch(30% 0.016 265);
-  --color-muted: oklch(45% 0.016 265);
-  --color-subtle: oklch(58% 0.014 265);
+  --color-muted: oklch(43% 0.016 265);
+  --color-subtle: oklch(48% 0.016 265);
 
   --color-accent: oklch(46% 0.22 268);
   --color-accent-ink: oklch(97% 0.008 265);
   --color-accent-soft: oklch(46% 0.22 268 / 0.10);
-  --color-accent-2: oklch(56% 0.185 22);
+  --color-accent-2: oklch(51% 0.185 22);
   --color-glow: oklch(58% 0.20 268 / 0.24);
   --color-glow-2: oklch(58% 0.20 268 / 0.08);
   --color-paper-emit: oklch(46% 0.22 268 / 0.035);

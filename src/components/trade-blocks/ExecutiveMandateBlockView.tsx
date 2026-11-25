@@ -80,7 +80,7 @@ export function ExecutiveMandateBlockView({
       </div>
 
       <h2
-        className="font-display text-[26px] sm:text-[30px] leading-[1.16] tracking-[-0.015em] text-[var(--color-ink)] mb-4"
+        className="font-serif-display text-[26px] sm:text-[30px] leading-[1.16] tracking-[-0.015em] text-[var(--color-ink)] mb-4"
         style={{ fontStyle: 'normal' }}
       >
         {block.mandateHeadline}

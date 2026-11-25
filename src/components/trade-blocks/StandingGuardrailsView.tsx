@@ -21,10 +21,10 @@ export function StandingGuardrailsView({
     >
       <div>
         <span className="font-mono-code text-[10px] uppercase tracking-[0.14em] text-[var(--color-subtle)]">
-          Global Governance · TradeDeskSettings
+          Standing Desk Policy &amp; Governance
         </span>
         <h2
-          className="font-display text-[24px] leading-[1.2] text-[var(--color-ink)] mt-1"
+          className="font-serif-display text-[24px] leading-[1.2] text-[var(--color-ink)] mt-1"
           style={{ fontStyle: 'normal' }}
         >
           IPS Targets, Tax Shield &amp; Standing Guardrails
@@ -74,8 +74,10 @@ export function StandingGuardrailsView({
         </div>
       )}
 
-      {(deskSettings.taxShieldReadout || deskSettings.washSaleTickers) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-4">
+      {(deskSettings.taxShieldReadout ||
+        deskSettings.washSaleTickers ||
+        typeof deskSettings.maxOptionSpreadPct === 'number') && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-4">
           {deskSettings.taxShieldReadout && (
             <div>
               <div className="font-mono-code text-[10px] uppercase tracking-[0.12em] text-[var(--color-subtle)] mb-1">
@@ -96,6 +98,16 @@ export function StandingGuardrailsView({
               </div>
               <p className="font-mono-code text-[12px] text-[var(--color-muted)]">
                 {deskSettings.washSaleTickers}
+              </p>
+            </div>
+          )}
+          {typeof deskSettings.maxOptionSpreadPct === 'number' && (
+            <div>
+              <div className="font-mono-code text-[10px] uppercase tracking-[0.12em] text-[var(--color-subtle)] mb-1">
+                Max Option Spread Gate
+              </div>
+              <p className="font-mono-code tabular-nums text-[12.5px] text-[var(--color-ink)]">
+                ≤ {deskSettings.maxOptionSpreadPct}% bid-ask width
               </p>
             </div>
           )}

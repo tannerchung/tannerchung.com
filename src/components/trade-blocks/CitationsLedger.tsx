@@ -15,10 +15,14 @@ export function CitationsLedger({
   citations,
   highlightedIndex,
   onClearHighlight,
+  returnLabel,
+  onReturn,
 }: {
   citations: TradeCitationItem[]
   highlightedIndex?: number | null
   onClearHighlight?: () => void
+  returnLabel?: string | null
+  onReturn?: () => void
 }) {
   const ordered = [...citations].sort((a, b) => a.index - b.index)
 
@@ -33,18 +37,27 @@ export function CitationsLedger({
             Verified Source Ledger
           </span>
           <h2
-            className="font-display text-[24px] leading-[1.2] text-[var(--color-ink)] mt-1"
+            className="font-serif-display text-[24px] leading-[1.2] text-[var(--color-ink)] mt-1"
             style={{ fontStyle: 'normal' }}
           >
             Corroborated Citations &amp; Filings
           </h2>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {returnLabel && onReturn ? (
+            <button
+              type="button"
+              onClick={onReturn}
+              className="px-2.5 py-1 border border-[var(--color-accent)] bg-[var(--color-accent-soft)] font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-accent)] hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
+            >
+              ← {returnLabel}
+            </button>
+          ) : null}
           {highlightedIndex ? (
             <button
               type="button"
               onClick={onClearHighlight}
-              className="font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-accent)] hover:underline cursor-pointer"
+              className="font-mono-code text-[10px] uppercase tracking-[0.1em] text-[var(--color-accent)] hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2"
             >
               Showing [{highlightedIndex}] · Clear
             </button>

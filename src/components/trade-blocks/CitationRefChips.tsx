@@ -50,7 +50,7 @@ export function CitationRefChips({
             title={title}
             aria-label={title}
             onClick={() => onSelectCitation?.(idx)}
-            className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono-code tabular-nums leading-none border border-[var(--color-rule)] bg-[var(--color-paper-3)] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors cursor-pointer"
+            className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono-code tabular-nums leading-none border border-[var(--color-rule)] bg-[var(--color-paper-3)] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-1 transition-colors cursor-pointer"
           >
             [{idx}]
           </button>
