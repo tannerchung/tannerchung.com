@@ -480,4 +480,99 @@ describe('POST /api/trade-sheets/ingest route handler', () => {
     expect(res.status).toBe(400)
     expect(mockPayload.find).not.toHaveBeenCalled()
   })
+
+  it('compiles stockbot portal_briefing_builder producer schema into all 5 native Payload blocks', () => {
+    const cleaned = sanitizeTradeSheetInput({
+      sheetDate: '2026-11-25',
+      title: 'Stockbot Enriched Sheet',
+      ticketsJson: [],
+      briefing: {
+        executiveMandate: {
+          headline: 'SELECTIVE_ACCUMULATION — 2026-11-25',
+          whatWeAreDoing: 'Executing 17 blotter legs under SELECTIVE_ACCUMULATION.',
+          whyNow: 'Secular compute and power buildout remains intact.',
+          wave1Summary: 'Wave 1 stages 13 equity sell legs.',
+          wave2Summary: 'Wave 2 deploys 4 buy legs once Wave 1 settles.',
+          keyGuardrails: ['Keep Klarman cash floor above 9.0%.'],
+          citationIndices: [1, 2],
+        },
+        moveRationales: [
+          {
+            symbol: 'PLTR',
+            wave: 'WAVE1',
+            action: 'SELL',
+            conviction: 'LOW',
+            valuationZone: 'ZONE_3_HARVEST_ABOVE_BULL',
+            why: 'Asymmetric skew above 40x sales.',
+            invalidationTrigger: 'Portfolio beta headroom is capped.',
+            citationIndices: [2],
+          },
+        ],
+        panelDebates: [
+          {
+            symbol: 'PGR',
+            wave: 'WAVE2',
+            consensus: 'HOUSE_VIEW_ALIGNED',
+            cioResolution: 'Stage WAVE2 BUY in tax-advantaged wrapper.',
+            strongestObjection: 'Requires Wave 1 proceeds first.',
+            seats: [
+              {
+                role: 'Presenting Analyst',
+                stance: 'BUY CASE',
+                quote: 'Telematics underwriting moat.',
+              },
+            ],
+            citationIndices: [2],
+          },
+        ],
+        redTeamChallenger: {
+          klarmanPosture: 'CRITICAL_UNDER_BUFFER: Investable cash below 9.0% floor.',
+          mungerVerdict: 'DIWORSIFICATION_TAIL_DRAG',
+          executiveTakeaway: 'Reconciled Q4 Safe Harbor and forward ROIIC.',
+          blindSpots: ['SGOV Cash Lockup Friction: turn off auto-reinvest.'],
+          counterHypotheses: ['Track monthly TSMC revenue inflections.'],
+          citationIndices: [2],
+        },
+        newsCatalysts: [
+          {
+            title: 'ENSG SEC Form 8-K: Results of Operations',
+            source: 'SEC EDGAR',
+            category: 'sec_filing',
+            publishedAt: '2026-10-27',
+            tickers: ['ENSG'],
+            summary: 'Form 8-K covering quarterly results.',
+            whyItMatters: 'Primary regulatory disclosure for ENSG.',
+            citationIndices: [2],
+            url: 'https://www.sec.gov/edgar/browse/?CIK=0001125376',
+          },
+        ],
+        citations: [
+          {
+            index: 1,
+            sourceType: 'house_views',
+            label: 'Internal House Views (no public URL)',
+            publisher: 'Stockbot House Views',
+          },
+          {
+            index: 2,
+            sourceType: 'sec_edgar',
+            label: 'ENSG SEC EDGAR Filings',
+            publisher: 'SEC EDGAR',
+            tickers: ['ENSG'],
+            url: 'https://www.sec.gov/edgar/browse/?CIK=0001125376',
+          },
+        ],
+      },
+    })
+
+    expect(cleaned.compiledCitations).toHaveLength(1)
+    expect(cleaned.compiledCitations[0].index).toBe(1)
+    expect(cleaned.compiledBlocks.map((b) => b.blockType)).toEqual([
+      'executiveMandate',
+      'moveRationales',
+      'panelDebates',
+      'redTeamChallenger',
+      'newsCatalysts',
+    ])
+  })
 })

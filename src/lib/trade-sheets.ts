@@ -227,68 +227,104 @@ export interface TradeSheetBriefingInput {
     posture?: string
     mandateHeadline?: string
     headline?: string
+    whatWeAreDoing?: string | null
+    whyNow?: string | null
+    wave1Summary?: string | null
+    wave2Summary?: string | null
     cashFloorGate?: string | null
     regimeCall?: string | null
     summaryPoints?: Array<string | { text: string }>
     holdOffNotes?: Array<string | { note: string }>
+    keyGuardrails?: string[]
     citationRefs?: string | number[] | null
+    citationIndices?: number[] | null
   } | null
   moveRationales?:
     | {
         sectionTitle?: string | null
         items?: Array<{
-          ticker: string
+          ticker?: string
+          symbol?: string
+          wave?: string | null
+          valuationZone?: string | null
           action: string
           conviction?: string | null
           horizon?: string | null
           rationale?: string
           thesis?: string
+          why?: string
           keyRisks?: string | null
+          invalidationTrigger?: string | null
           citationRefs?: string | number[] | null
+          citationIndices?: number[] | null
         }>
       }
     | Array<{
-        ticker: string
+        ticker?: string
+        symbol?: string
+        wave?: string | null
+        valuationZone?: string | null
         action: string
         conviction?: string | null
         horizon?: string | null
         rationale?: string
         thesis?: string
+        why?: string
         keyRisks?: string | null
+        invalidationTrigger?: string | null
         citationRefs?: string | number[] | null
+        citationIndices?: number[] | null
       }>
     | null
   panelDebates?:
     | {
         topic?: string
+        symbol?: string
+        wave?: string | null
+        consensus?: string | null
         consensusSummary?: string | null
+        cioResolution?: string | null
         dissentHeadline?: string | null
         strongestUnresolvedObjection?: string | null
+        strongestObjection?: string | null
+        citationIndices?: number[] | null
         seats?: Array<{
           seatKey?: string
           seatName?: string
           seat?: string
+          role?: string
           stance?: string
           thesis?: string
           summary?: string
+          quote?: string
           objection?: string | null
           citationRefs?: string | number[] | null
+          citationIndices?: number[] | null
         }>
       }
     | Array<{
         topic?: string
+        symbol?: string
+        wave?: string | null
+        consensus?: string | null
         consensusSummary?: string | null
+        cioResolution?: string | null
         dissentHeadline?: string | null
         strongestUnresolvedObjection?: string | null
+        strongestObjection?: string | null
+        citationIndices?: number[] | null
         seats?: Array<{
           seatKey?: string
           seatName?: string
           seat?: string
+          role?: string
           stance?: string
           thesis?: string
           summary?: string
+          quote?: string
           objection?: string | null
           citationRefs?: string | number[] | null
+          citationIndices?: number[] | null
         }>
       }>
     | null
@@ -296,42 +332,67 @@ export interface TradeSheetBriefingInput {
     challengerTitle?: string | null
     overallSeverity?: string | null
     preMortemSummary?: string
-    blindSpots?: Array<{
-      category?: string | null
-      severity?: string | null
-      claim: string
-      mitigation?: string | null
-      citationRefs?: string | number[] | null
-    }>
+    pendulumZone?: string | null
+    klarmanPosture?: string | null
+    mungerVerdict?: string | null
+    executiveTakeaway?: string | null
+    blindSpots?: Array<
+      | string
+      | {
+          category?: string | null
+          severity?: string | null
+          claim: string
+          mitigation?: string | null
+          citationRefs?: string | number[] | null
+          citationIndices?: number[] | null
+        }
+    >
+    counterHypotheses?: string[] | null
+    citationIndices?: number[] | null
   } | null
   newsCatalysts?:
     | {
         windowLabel?: string | null
         items?: Array<{
           ticker?: string | null
-          headline: string
+          tickers?: string[] | null
+          headline?: string
+          title?: string
           catalystKind?: string | null
+          category?: string | null
           impactSummary?: string | null
+          summary?: string | null
+          whyItMatters?: string | null
           publishedAt?: string | null
           citationIndex?: number | null
+          citationIndices?: number[] | null
         }>
       }
     | Array<{
         ticker?: string | null
-        headline: string
+        tickers?: string[] | null
+        headline?: string
+        title?: string
         catalystKind?: string | null
+        category?: string | null
         impactSummary?: string | null
+        summary?: string | null
+        whyItMatters?: string | null
         publishedAt?: string | null
         citationIndex?: number | null
+        citationIndices?: number[] | null
       }>
     | null
   citations?: Array<{
     index?: number
     ticker?: string | null
-    source: string
+    tickers?: string[] | null
+    source?: string
+    publisher?: string | null
     kind?: string | null
+    sourceType?: string | null
     label: string
-    url: string
+    url?: string | null
     publishedAt?: string | null
   }> | null
 }
@@ -474,8 +535,26 @@ function normalizeStance(
   raw?: string | null,
 ): 'approve' | 'caution' | 'dissent' | 'abstain' {
   const val = String(raw || '').trim().toLowerCase()
-  if (val === 'approve' || val === 'bullish' || val === 'support' || val === 'for') return 'approve'
-  if (val === 'dissent' || val === 'oppose' || val === 'bearish' || val === 'against') return 'dissent'
+  if (
+    val === 'approve' ||
+    val === 'bullish' ||
+    val === 'support' ||
+    val === 'for' ||
+    val.includes('buy') ||
+    val.includes('aligned')
+  ) {
+    return 'approve'
+  }
+  if (
+    val === 'dissent' ||
+    val === 'oppose' ||
+    val === 'bearish' ||
+    val === 'against' ||
+    val.includes('reject') ||
+    val.includes('veto')
+  ) {
+    return 'dissent'
+  }
   if (val === 'abstain' || val === 'neutral' || val === 'pass') return 'abstain'
   return 'caution'
 }
@@ -564,10 +643,13 @@ export function sanitizeCitationsList(
   rawCitations?: Array<{
     index?: number
     ticker?: string | null
-    source: string
+    tickers?: string[] | null
+    source?: string
+    publisher?: string | null
     kind?: string | null
+    sourceType?: string | null
     label: string
-    url: string
+    url?: string | null
     publishedAt?: string | null
   }> | null,
 ): { citations: TradeCitationItem[]; indexRemap: Map<number, number> } {
@@ -600,12 +682,17 @@ export function sanitizeCitationsList(
     seenUrlToNewIndex.set(cleanedUrl, newIdx)
     indexRemap.set(origIdx, newIdx)
 
+    const primaryTicker =
+      raw.ticker ||
+      (Array.isArray(raw.tickers) && typeof raw.tickers[0] === 'string' ? raw.tickers[0] : null)
+    const rawSource = raw.source || raw.publisher || 'Wire'
+
     citations.push({
       index: newIdx,
-      ticker: raw.ticker ? scrubSensitiveText(String(raw.ticker)).toUpperCase() || null : null,
-      source: scrubBriefingProse(String(raw.source || 'Wire')) || 'Wire',
-      kind: normalizeCitationKind(raw.kind),
-      label: scrubBriefingProse(String(raw.label || raw.source || 'Source')) || 'Source',
+      ticker: primaryTicker ? scrubSensitiveText(String(primaryTicker)).toUpperCase() || null : null,
+      source: scrubBriefingProse(String(rawSource)) || 'Wire',
+      kind: normalizeCitationKind(raw.kind ?? raw.sourceType),
+      label: scrubBriefingProse(String(raw.label || rawSource || 'Source')) || 'Source',
       url: cleanedUrl,
       publishedAt: raw.publishedAt ? scrubSensitiveText(String(raw.publishedAt)) || null : null,
     })
@@ -875,21 +962,38 @@ export function compileBriefingToPayloadBlocks(
 
   // 1. Executive Mandate
   const mandate = input?.executiveMandate
-  if (mandate && (mandate.mandateHeadline || mandate.headline || mandate.summaryPoints?.length)) {
-    const summaryPoints = Array.isArray(mandate.summaryPoints)
-      ? mandate.summaryPoints
-          .slice(0, MAX_MANDATE_LIST_ITEMS)
-          .map((p) => scrubBriefingProse(typeof p === 'string' ? p : p?.text || ''))
-          .filter(Boolean)
-          .map((text) => ({ text }))
-      : []
-    const holdOffNotes = Array.isArray(mandate.holdOffNotes)
-      ? mandate.holdOffNotes
-          .slice(0, MAX_MANDATE_LIST_ITEMS)
-          .map((n) => scrubBriefingProse(typeof n === 'string' ? n : n?.note || ''))
-          .filter(Boolean)
-          .map((note) => ({ note }))
-      : []
+  const derivedMandatePoints = mandate
+    ? [mandate.whatWeAreDoing, mandate.whyNow, mandate.wave1Summary, mandate.wave2Summary].filter(
+        (s): s is string => typeof s === 'string' && s.trim().length > 0,
+      )
+    : []
+  if (
+    mandate &&
+    (mandate.mandateHeadline ||
+      mandate.headline ||
+      mandate.summaryPoints?.length ||
+      derivedMandatePoints.length > 0)
+  ) {
+    const rawPoints =
+      Array.isArray(mandate.summaryPoints) && mandate.summaryPoints.length > 0
+        ? mandate.summaryPoints
+        : derivedMandatePoints
+    const summaryPoints = rawPoints
+      .slice(0, MAX_MANDATE_LIST_ITEMS)
+      .map((p) => scrubBriefingProse(typeof p === 'string' ? p : p?.text || ''))
+      .filter(Boolean)
+      .map((text) => ({ text }))
+    const rawHoldOffs =
+      Array.isArray(mandate.holdOffNotes) && mandate.holdOffNotes.length > 0
+        ? mandate.holdOffNotes
+        : Array.isArray(mandate.keyGuardrails)
+          ? mandate.keyGuardrails
+          : []
+    const holdOffNotes = rawHoldOffs
+      .slice(0, MAX_MANDATE_LIST_ITEMS)
+      .map((n) => scrubBriefingProse(typeof n === 'string' ? n : n?.note || ''))
+      .filter(Boolean)
+      .map((note) => ({ note }))
     const headline =
       scrubBriefingProse(mandate.mandateHeadline || mandate.headline || '') ||
       'Session Execution Mandate'
@@ -901,7 +1005,8 @@ export function compileBriefingToPayloadBlocks(
       regimeCall: mandate.regimeCall ? scrubBriefingProse(mandate.regimeCall) : null,
       summaryPoints,
       holdOffNotes,
-      citationRefs: normalizeCitationRefs(mandate.citationRefs, hasRemap) ?? null,
+      citationRefs:
+        normalizeCitationRefs(mandate.citationRefs ?? mandate.citationIndices, hasRemap) ?? null,
     })
   } else if (
     !input?.executiveMandate &&
@@ -946,17 +1051,31 @@ export function compileBriefingToPayloadBlocks(
   if (rawMoveItems && rawMoveItems.length > 0) {
     const items = rawMoveItems
       .slice(0, MAX_MOVE_RATIONALES)
-      .filter((item) => item && item.ticker && (item.rationale || item.thesis))
-      .map((item) => ({
-        ticker: scrubBriefingProse(String(item.ticker)).toUpperCase(),
-        action: scrubBriefingProse(String(item.action || 'WATCH')).toUpperCase(),
-        conviction: normalizeConviction(item.conviction),
-        horizon: item.horizon ? scrubBriefingProse(item.horizon) : null,
-        rationale: scrubBriefingProse(item.rationale || item.thesis || ''),
-        keyRisks: item.keyRisks ? scrubBriefingProse(item.keyRisks) : null,
-        citationRefs: normalizeCitationRefs(item.citationRefs, hasRemap) ?? null,
-      }))
-      .filter((item) => item.rationale.length > 0)
+      .filter(
+        (item) =>
+          item &&
+          (item.ticker || item.symbol) &&
+          (item.rationale || item.thesis || item.why),
+      )
+      .map((item) => {
+        const rawHorizon =
+          item.horizon ||
+          [item.wave, item.valuationZone]
+            .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+            .join(' · ')
+        const rawRisks = item.keyRisks || item.invalidationTrigger
+        return {
+          ticker: scrubBriefingProse(String(item.ticker || item.symbol || '')).toUpperCase(),
+          action: scrubBriefingProse(String(item.action || 'WATCH')).toUpperCase(),
+          conviction: normalizeConviction(item.conviction),
+          horizon: rawHorizon ? scrubBriefingProse(rawHorizon) : null,
+          rationale: scrubBriefingProse(item.rationale || item.thesis || item.why || ''),
+          keyRisks: rawRisks ? scrubBriefingProse(rawRisks) : null,
+          citationRefs:
+            normalizeCitationRefs(item.citationRefs ?? item.citationIndices, hasRemap) ?? null,
+        }
+      })
+      .filter((item) => item.ticker.length > 0 && item.rationale.length > 0)
 
     if (items.length > 0) {
       briefingBlocks.push({
@@ -978,36 +1097,48 @@ export function compileBriefingToPayloadBlocks(
     if (!debate) continue
     const seats = Array.isArray(debate.seats)
       ? debate.seats
-          .filter((s) => s && (s.seatName || s.seat) && (s.thesis || s.summary))
+          .filter(
+            (s) =>
+              s &&
+              (s.seatName || s.seat || s.role) &&
+              (s.thesis || s.summary || s.quote),
+          )
           .slice(0, MAX_PANEL_SEATS)
           .map((s) => {
-            const name = scrubBriefingProse(s.seatName || s.seat || 'IC Seat')
+            const name = scrubBriefingProse(s.seatName || s.seat || s.role || 'IC Seat')
             return {
               seatKey: s.seatKey ? slugifySeatKey(s.seatKey) : slugifySeatKey(name),
               seatName: name,
               stance: normalizeStance(s.stance),
-              thesis: scrubBriefingProse(s.thesis || s.summary || ''),
+              thesis: scrubBriefingProse(s.thesis || s.summary || s.quote || ''),
               objection: s.objection ? scrubBriefingProse(s.objection) : null,
-              citationRefs: normalizeCitationRefs(s.citationRefs, hasRemap) ?? null,
+              citationRefs:
+                normalizeCitationRefs(
+                  s.citationRefs ?? s.citationIndices ?? debate.citationIndices,
+                  hasRemap,
+                ) ?? null,
             }
           })
           .filter((s) => s.thesis.length > 0)
       : []
 
-    const topic = scrubBriefingProse(debate.topic || 'Investment Committee Debate')
-    if (topic && (seats.length > 0 || debate.consensusSummary || debate.dissentHeadline)) {
+    const rawTopic =
+      debate.topic ||
+      (debate.symbol
+        ? `${debate.symbol}${debate.wave ? ` (${debate.wave})` : ''}${debate.consensus ? ` — ${debate.consensus}` : ''}`
+        : 'Investment Committee Debate')
+    const topic = scrubBriefingProse(rawTopic)
+    const rawConsensus = debate.consensusSummary || debate.cioResolution
+    const rawObjection = debate.strongestUnresolvedObjection || debate.strongestObjection
+    if (topic && (seats.length > 0 || rawConsensus || debate.dissentHeadline || rawObjection)) {
       briefingBlocks.push({
         blockType: 'panelDebates',
         topic,
-        consensusSummary: debate.consensusSummary
-          ? scrubBriefingProse(debate.consensusSummary)
-          : null,
+        consensusSummary: rawConsensus ? scrubBriefingProse(rawConsensus) : null,
         dissentHeadline: debate.dissentHeadline
           ? scrubBriefingProse(debate.dissentHeadline)
           : null,
-        strongestUnresolvedObjection: debate.strongestUnresolvedObjection
-          ? scrubBriefingProse(debate.strongestUnresolvedObjection)
-          : null,
+        strongestUnresolvedObjection: rawObjection ? scrubBriefingProse(rawObjection) : null,
         seats,
       })
     }
@@ -1015,20 +1146,68 @@ export function compileBriefingToPayloadBlocks(
 
   // 4. Red-Team Challenger
   const redTeam = input?.redTeamChallenger
-  if (redTeam && (redTeam.preMortemSummary || redTeam.blindSpots?.length)) {
-    const blindSpots = Array.isArray(redTeam.blindSpots)
-      ? redTeam.blindSpots
-          .slice(0, MAX_BLIND_SPOTS)
-          .filter((b) => b && b.claim)
-          .map((b) => ({
-            category: normalizeBlindSpotCategory(b.category),
-            severity: normalizeBlindSpotSeverity(b.severity),
-            claim: scrubBriefingProse(b.claim),
-            mitigation: b.mitigation ? scrubBriefingProse(b.mitigation) : null,
-            citationRefs: normalizeCitationRefs(b.citationRefs, hasRemap) ?? null,
-          }))
-          .filter((b) => b.claim.length > 0)
-      : []
+  const derivedPreMortem = redTeam
+    ? redTeam.preMortemSummary ||
+      [redTeam.executiveTakeaway, redTeam.klarmanPosture, redTeam.mungerVerdict]
+        .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+        .join(' — ')
+    : ''
+  if (
+    redTeam &&
+    (derivedPreMortem || redTeam.blindSpots?.length || redTeam.counterHypotheses?.length)
+  ) {
+    const teamCitationRefs =
+      normalizeCitationRefs(redTeam.citationIndices, hasRemap) ?? null
+    const rawBlindSpots: Array<{
+      category?: string | null
+      severity?: string | null
+      claim: string
+      mitigation?: string | null
+      citationRefs?: string | number[] | null
+      citationIndices?: number[] | null
+    }> = []
+    if (Array.isArray(redTeam.blindSpots)) {
+      for (const b of redTeam.blindSpots) {
+        if (typeof b === 'string' && b.trim()) {
+          rawBlindSpots.push({
+            category: b,
+            severity: 'medium',
+            claim: b,
+          })
+        } else if (b && typeof b === 'object' && b.claim) {
+          rawBlindSpots.push(b)
+        }
+      }
+    }
+    if (Array.isArray(redTeam.counterHypotheses)) {
+      for (const ch of redTeam.counterHypotheses) {
+        if (typeof ch === 'string' && ch.trim()) {
+          rawBlindSpots.push({
+            category: ch,
+            severity: 'medium',
+            claim: ch,
+          })
+        }
+      }
+    }
+    const blindSpots = rawBlindSpots
+      .slice(0, MAX_BLIND_SPOTS)
+      .map((b) => ({
+        category: normalizeBlindSpotCategory(b.category),
+        severity: normalizeBlindSpotSeverity(b.severity),
+        claim: scrubBriefingProse(b.claim),
+        mitigation: b.mitigation ? scrubBriefingProse(b.mitigation) : null,
+        citationRefs:
+          normalizeCitationRefs(b.citationRefs ?? b.citationIndices, hasRemap) ?? teamCitationRefs,
+      }))
+      .filter((b) => b.claim.length > 0)
+
+    const derivedSeverity =
+      redTeam.overallSeverity ||
+      (typeof redTeam.klarmanPosture === 'string' &&
+      redTeam.klarmanPosture.toUpperCase().includes('CRITICAL')
+        ? 'critical'
+        : 'elevated')
 
     briefingBlocks.push({
       blockType: 'redTeamChallenger',
@@ -1036,9 +1215,9 @@ export function compileBriefingToPayloadBlocks(
         scrubBriefingProse(
           redTeam.challengerTitle || 'Autonomous Red-Team & Second-Level Blind Spots',
         ) || 'Autonomous Red-Team & Second-Level Blind Spots',
-      overallSeverity: normalizeOverallSeverity(redTeam.overallSeverity),
+      overallSeverity: normalizeOverallSeverity(derivedSeverity),
       preMortemSummary:
-        scrubBriefingProse(redTeam.preMortemSummary || '') ||
+        scrubBriefingProse(derivedPreMortem) ||
         'Adversarial pre-mortem stress test across portfolio concentration and liquidity.',
       blindSpots,
     })
@@ -1059,19 +1238,33 @@ export function compileBriefingToPayloadBlocks(
   if (rawNewsItems && rawNewsItems.length > 0) {
     const items = rawNewsItems
       .slice(0, MAX_NEWS_CATALYSTS)
-      .filter((item) => item && item.headline)
+      .filter((item) => item && (item.headline || item.title))
       .map((item) => {
-        const mappedIndex =
+        const rawIdx =
           typeof item.citationIndex === 'number' && Number.isInteger(item.citationIndex)
-            ? hasRemap
-              ? (hasRemap.get(item.citationIndex) ?? null)
-              : item.citationIndex
-            : null
+            ? item.citationIndex
+            : Array.isArray(item.citationIndices) &&
+                typeof item.citationIndices[0] === 'number' &&
+                Number.isInteger(item.citationIndices[0])
+              ? item.citationIndices[0]
+              : null
+        const mappedIndex =
+          rawIdx !== null ? (hasRemap ? (hasRemap.get(rawIdx) ?? null) : rawIdx) : null
+        const rawTicker =
+          item.ticker ||
+          (Array.isArray(item.tickers) && typeof item.tickers[0] === 'string'
+            ? item.tickers[0]
+            : null)
+        const rawImpact =
+          item.impactSummary ||
+          [item.whyItMatters, item.summary]
+            .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+            .join(' ')
         return {
-          ticker: item.ticker ? scrubSensitiveText(String(item.ticker)).toUpperCase() || null : null,
-          headline: scrubBriefingProse(item.headline),
-          catalystKind: normalizeCatalystKind(item.catalystKind),
-          impactSummary: item.impactSummary ? scrubBriefingProse(item.impactSummary) : null,
+          ticker: rawTicker ? scrubSensitiveText(String(rawTicker)).toUpperCase() || null : null,
+          headline: scrubBriefingProse(item.headline || item.title || ''),
+          catalystKind: normalizeCatalystKind(item.catalystKind ?? item.category),
+          impactSummary: rawImpact ? scrubBriefingProse(rawImpact) : null,
           publishedAt: item.publishedAt ? scrubSensitiveText(String(item.publishedAt)) || null : null,
           citationIndex: mappedIndex,
         }
